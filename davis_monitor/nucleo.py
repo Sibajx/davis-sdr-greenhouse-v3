@@ -33,7 +33,7 @@ from .alertas import Notificador, calcular_backoff
 from .rutas import Rutas
 
 logger = logging.getLogger("DavisMonitor")
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 MAX_VUELCOS_POR_TRAMA = 30  # salto mayor = contador re-sincronizado, no lluvia real
 
 

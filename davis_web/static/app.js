@@ -228,8 +228,9 @@ function pintarTarjetas() {
     }
     const det = $(".det", c);
     det.replaceChildren(t.banda ? el("span", { class: "etiqueta-banda" }, t.banda[1]) : "", t.banda && t.det ? " " : "", t.det || "");
-    const clave = { temp: "temp", humedad: "humedad", viento: "viento_vel", rafaga: "rafaga", solar: "solar", uv: "uv" }[t.k];
-    c.classList.toggle("vieja", S.estado.conexion === "fuera_de_linea" || (clave && edades[clave] > 600));
+    const clave = { temp: "temp", humedad: "humedad", vpd: "humedad", viento: "viento_vel", rafaga: "rafaga", solar: "solar", uv: "uv" }[t.k];
+    // OJO: toggle(clase, undefined) ALTERNA la clase en cada llamada; siempre pasar un booleano
+    c.classList.toggle("vieja", S.estado.conexion === "fuera_de_linea" || Boolean(clave && edades[clave] > 600));
     if (t.brujula) pintarBrujula($(".g", c), e.viento_dir_grados, t.v);
   });
   pintarMinis();

@@ -20,6 +20,7 @@ Este documento reemplaza a `INSTALACION.md`, `README_MONITOR.md` y `DOCUMENTACIO
 11. [Instalación desde cero (otra máquina)](#11-instalación-desde-cero-otra-máquina)
 12. [Estado actual del hardware y pendientes](#12-estado-actual-del-hardware-y-pendientes)
 13. [Dashboard web](#13-dashboard-web)
+14. [Respaldos](#14-respaldos)
 
 ---
 
@@ -588,3 +589,51 @@ El diseño ya lo permite sin reescribir código:
 1. **Opción simple:** copiar la carpeta `davis_v2` (con `datos/`) al servidor y apuntar el túnel al servidor. La Pi queda solo como receptor y envía los datos.
 2. **Sincronizar los datos de la Pi al servidor:** cada pocos minutos con `rsync` de `datos/db` y `estado.json`, o mejor, que el receptor publique cada trama por **MQTT** (la Pi ya tiene Mosquitto en el puerto 1883) y el servidor la guarde.
 3. A más escala: PostgreSQL/TimescaleDB en lugar de SQLite (el módulo `consultas.py` es el único punto que cambiaría).
+
+---
+
+## 14. Respaldos
+
+Se respalda **solo, cada día**, sin detener nada. El respaldo usa la API de backup de SQLite, que saca una copia consistente aunque el receptor esté escribiendo.
+
+| Qué | Dónde |
+|---|---|
+| Base activa, cuentas del dashboard, todos los CSV, `config.json` | `datos/respaldos/AAAA-MM-DD_HHMM/` (un respaldo por día) |
+| Histórico migrado y legado v2.3 (no cambian) | `datos/respaldos/fijos/`, guardados **una sola vez** |
+| Detalle de cada respaldo | `manifiesto.json`: SHA-256, filas por tabla, rango de fechas |
+| Log | `datos/logs/respaldo.log` |
+
+- **Programación:** tu crontab de usuario (`crontab -l`) revisa cada hora a los :17 y respalda si el último tiene más de 23 h. También revisa 10 min después de encender la Pi. Si estuvo apagada, se pone al día sola.
+- **Verificación:** cada copia pasa `PRAGMA integrity_check` antes de guardarse. Un respaldo a medias nunca queda como válido, porque se escribe en `.parcial` y se renombra al final.
+- **Retención:** los 7 más recientes, más 1 por semana (4 semanas) y 1 por mes (12 meses). Los demás se borran solos.
+- **Protecciones:** no respalda con menos de 1 GB libre, no corre dos veces al mismo tiempo, y si falla avisa por ntfy (si está configurado) y lo anota en el log.
+
+**Importante:** `datos/respaldos/` está **en la misma microSD**. Protege contra borrados, corrupción de la base o un error, pero **no contra que la tarjeta muera**. Para eso, conecta un disco USB y agrega en `config.json`:
+
+```json
+{ "pluviometro_activo": false, "dir_respaldos_extra": "/media/alternas/NOMBRE_DEL_DISCO" }
+```
+
+Cada respaldo se copiará también ahí (en `davis_respaldos/`), con la misma retención. Si el disco no está conectado, solo queda un aviso en el log.
+
+| Comando | Qué hace |
+|---|---|
+| `davis respaldo` | Respaldar ahora |
+| `davis respaldo listar` | Lista los respaldos y cuánto hace del último |
+| `davis respaldo verificar` | Comprueba SHA-256 y que cada archivo se pueda descomprimir |
+
+### Restaurar
+
+```bash
+davis detener                                         # detiene receptor, dashboard y túnel
+cd ~/Escritorio/files/davis_v2/datos
+R=respaldos/2026-11-03_1644                           # el respaldo elegido (davis respaldo listar)
+mv db/eventos_davis.db db/eventos_davis.db.antes      # conservar la actual por si acaso
+rm -f db/eventos_davis.db-wal db/eventos_davis.db-shm
+gunzip -c $R/eventos_davis.db.gz > db/eventos_davis.db
+gunzip -c $R/usuarios.db.gz      > web/usuarios.db    # solo si también quieres restaurar las cuentas
+tar xzf $R/csv.tar.gz                                 # CSV (sobrescribe datos/csv/)
+davis iniciar
+```
+
+Histórico migrado: `gunzip -c respaldos/fijos/historico_v23_migrado.db.gz > db/historico_v23_migrado.db`.

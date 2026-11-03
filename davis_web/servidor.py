@@ -4,9 +4,13 @@ Escucha SOLO en 127.0.0.1: desde fuera se entra únicamente por el túnel de
 Cloudflare (cloudflared → http://127.0.0.1:8090). Lee las bases en modo solo
 lectura; nunca toca el dongle ni el receptor.
 """
+import gzip
+import hashlib
 import json
 import logging
 import mimetypes
+import threading
+from collections import OrderedDict, deque
 import os
 import re
 import time
@@ -25,6 +29,54 @@ STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 COOKIE = "davis_sesion"
 MAX_CUERPO = 64 * 1024
 
+# ---- protección del sitio público (la Pi también es el receptor: no puede saturarse)
+CONSULTAS_PESADAS = threading.BoundedSemaphore(3)   # series/promediado/exportar simultáneos
+LIMITES = {"api": (600, 60), "pesada": (60, 60)}    # (peticiones, ventana s) por IP; el lab sale por 1 sola IP (NAT)
+_HITS: dict = {}
+_HITS_LOCK = threading.Lock()
+
+
+def limite_superado(ip: str, tipo: str) -> bool:
+    n, ventana = LIMITES[tipo]
+    ahora = time.monotonic()
+    with _HITS_LOCK:
+        d = _HITS.setdefault((ip, tipo), deque())
+        while d and ahora - d[0] > ventana:
+            d.popleft()
+        if len(d) >= n:
+            return True
+        d.append(ahora)
+        if len(_HITS) > 5000:   # limpieza ocasional de IPs inactivas
+            for k in [k for k, v in _HITS.items() if not v or ahora - v[-1] > 600]:
+                _HITS.pop(k, None)
+        return False
+
+
+class CacheTTL:
+    """Caché pequeña en memoria para respuestas JSON públicas (misma consulta de muchos visitantes)."""
+    def __init__(self, maximo: int = 96, ttl: float = 20.0):
+        self.maximo, self.ttl, self._d, self._lock = maximo, ttl, OrderedDict(), threading.Lock()
+
+    def obtener(self, clave):
+        with self._lock:
+            v = self._d.get(clave)
+            if v and time.monotonic() - v[0] < self.ttl:
+                self._d.move_to_end(clave)
+                return v[1]
+            return None
+
+    def guardar(self, clave, valor):
+        with self._lock:
+            self._d[clave] = (time.monotonic(), valor)
+            self._d.move_to_end(clave)
+            while len(self._d) > self.maximo:
+                self._d.popitem(last=False)
+
+
+CACHE = CacheTTL()
+_ESTATICOS: dict = {}   # ruta → (mtime, contenido, gzip, etag)
+COMPRIMIBLES = ("text/", "application/json", "application/javascript", "image/svg+xml")
+
 CABECERAS_SEGURIDAD = {
     "Content-Security-Policy": ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
                                 "img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; "
@@ -33,6 +85,7 @@ CABECERAS_SEGURIDAD = {
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "same-origin",
     "Permissions-Policy": "geolocation=(), camera=(), microphone=()",
+    "Strict-Transport-Security": "max-age=31536000",   # los navegadores la ignoran por http://localhost
 }
 
 
@@ -93,12 +146,21 @@ class Manejador(BaseHTTPRequestHandler):
         except ValueError:
             raise ErrorHTTP(400, "JSON inválido")
 
-    def enviar(self, estado: int, cuerpo: bytes, tipo: str, extra: dict = None, cache: str = "no-store"):
+    def acepta_gzip(self) -> bool:
+        return "gzip" in (self.headers.get("Accept-Encoding") or "")
+
+    def enviar(self, estado: int, cuerpo: bytes, tipo: str, extra: dict = None, cache: str = "no-store",
+               ya_gzip: bytes = None):
+        extra = dict(extra or {})
+        if len(cuerpo) > 1400 and tipo.startswith(COMPRIMIBLES) and self.acepta_gzip():
+            cuerpo = ya_gzip if ya_gzip is not None else gzip.compress(cuerpo, 6)
+            extra["Content-Encoding"] = "gzip"
+            extra["Vary"] = "Accept-Encoding"
         self.send_response(estado)
         self.send_header("Content-Type", tipo)
         self.send_header("Content-Length", str(len(cuerpo)))
         self.send_header("Cache-Control", cache)
-        for k, v in {**CABECERAS_SEGURIDAD, **(extra or {})}.items():
+        for k, v in {**CABECERAS_SEGURIDAD, **extra}.items():
             self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
@@ -130,16 +192,20 @@ class Manejador(BaseHTTPRequestHandler):
         q = {k: v[-1] for k, v in parse_qs(url.query).items()}
         t0 = time.time()
         try:
+            if url.path.startswith("/api/"):
+                pesada = url.path in RUTAS_PESADAS
+                if limite_superado(self.ip(), "pesada" if pesada else "api"):
+                    raise ErrorHTTP(429, "Demasiadas peticiones; espera un minuto")
             for (m, patron), fn in RUTAS.items():
                 if m == metodo:
                     g = re.fullmatch(patron, url.path)
                     if g:
                         return fn(self, q, *g.groups())
-            if metodo == "GET":
+            if metodo == "GET" and not url.path.startswith("/api/"):
                 return self.archivo_estatico(url.path)
             raise ErrorHTTP(404, "No encontrado")
         except ErrorHTTP as e:
-            self.json({"error": e.mensaje}, e.estado)
+            self.json({"error": e.mensaje}, e.estado, extra={"Retry-After": "60"} if e.estado in (429, 503) else None)
         except ValueError as e:
             self.json({"error": str(e)}, 400)
         except (BrokenPipeError, ConnectionResetError):
@@ -162,9 +228,21 @@ class Manejador(BaseHTTPRequestHandler):
         tipo = mimetypes.guess_type(real)[0] or "application/octet-stream"
         if tipo.startswith("text/") or tipo in ("application/javascript",):
             tipo += "; charset=utf-8"
-        cache = "public, max-age=86400" if "/vendor/" in real else "no-cache"
-        with open(real, "rb") as f:
-            self.enviar(200, f.read(), tipo, cache=cache)
+        cache = "public, max-age=604800" if "/vendor/" in real else "no-cache"
+        mtime = os.path.getmtime(real)
+        e = _ESTATICOS.get(real)
+        if not e or e[0] != mtime:
+            with open(real, "rb") as f:
+                datos = f.read()
+            e = (mtime, datos, gzip.compress(datos, 9), '"' + hashlib.sha1(datos).hexdigest()[:16] + '"')
+            _ESTATICOS[real] = e
+        if self.headers.get("If-None-Match") == e[3]:
+            self.send_response(304)
+            self.send_header("ETag", e[3])
+            self.send_header("Cache-Control", cache)
+            self.end_headers()
+            return
+        self.enviar(200, e[1], tipo, {"ETag": e[3]}, cache=cache, ya_gzip=e[2])
 
 
 # ================================================================ endpoints
@@ -192,12 +270,36 @@ def ep_meta(h, q):
             "max_dias": exportar.MAX_DIAS})
 
 
+class _Pesada:
+    """Máx. 3 consultas pesadas a la vez; si no hay turno en 20 s → 503 (en vez de saturar la Pi)."""
+    def __enter__(self):
+        if not CONSULTAS_PESADAS.acquire(timeout=20):
+            raise ErrorHTTP(503, "Servidor ocupado, intenta de nuevo en unos segundos")
+
+    def __exit__(self, *a):
+        CONSULTAS_PESADAS.release()
+
+
 def ep_serie(h, q):
     desde, hasta = _rango(q)
     if hasta - desde > 400 * 86400:
         raise ValueError("Rango máximo: 400 días")
     res = int(q["res"]) if q.get("res") else None
-    h.json(consultas.serie(desde, hasta, _vars(q, ("temp", "humedad")), res))
+    # redondeo a 10 s: muchos visitantes del "en vivo" comparten la misma entrada de caché
+    desde, hasta = round(desde / 10) * 10, round(hasta / 10) * 10
+    vs = tuple(_vars(q, ("temp", "humedad")))
+    clave = (desde, hasta, vs, res)
+    cuerpo = CACHE.obtener(clave)
+    if cuerpo is None:
+        with _Pesada():
+            cuerpo = json.dumps(consultas.serie(desde, hasta, vs, res), ensure_ascii=False,
+                                separators=(",", ":")).encode()
+        CACHE.guardar(clave, cuerpo)
+    h.enviar(200, cuerpo, "application/json; charset=utf-8")
+
+
+def ep_robots(h, q):
+    h.enviar(200, b"User-agent: *\nDisallow: /api/\n", "text/plain; charset=utf-8", cache="public, max-age=86400")
 
 
 def ep_sesion(h, q):
@@ -248,7 +350,9 @@ def ep_prom_movil(h, q):
     v = int(q.get("ventana", 30))
     if v not in promediado.INTERVALOS_MIN:
         raise ValueError(f"ventana debe ser una de {promediado.INTERVALOS_MIN}")
-    h.json(promediado.movil(desde, hasta, v, max(1, v // 2)))
+    with _Pesada():
+        r = promediado.movil(desde, hasta, v, max(1, v // 2))
+    h.json(r)
 
 
 def ep_prom_archivo(h, q):
@@ -259,7 +363,9 @@ def ep_prom_archivo(h, q):
     metodo = q.get("metodo", "media")
     if metodo == "integral" and hasta - desde > 31 * 86400:
         raise ValueError("El método integral usa tramas crudas: máximo 31 días")
-    h.json(promediado.archivo(desde, hasta, int(q.get("intervalo", 30)), metodo))
+    with _Pesada():
+        r = promediado.archivo(desde, hasta, int(q.get("intervalo", 30)), metodo)
+    h.json(r)
 
 
 def ep_exportar(h, q):
@@ -268,8 +374,9 @@ def ep_exportar(h, q):
     fuente = q.get("fuente", "minuto")
     formatos = [f for f in (q.get("formatos") or "csv").split(",") if f]
     res = int(q["res"]) if q.get("res") else None
-    nombre, tipo, datos = exportar.generar(fuente, desde, hasta, _vars(q, consultas.variables_disponibles()),
-                                           formatos, res, int(q.get("intervalo", 30)), q.get("metodo", "media"))
+    with _Pesada():
+        nombre, tipo, datos = exportar.generar(fuente, desde, hasta, _vars(q, consultas.variables_disponibles()),
+                                               formatos, res, int(q.get("intervalo", 30)), q.get("metodo", "media"))
     h.auth.auditar("descarga", s["usuario"], h.ip(),
                    f"{fuente} {exportar._fecha(desde)} → {exportar._fecha(hasta)} {','.join(formatos)} "
                    f"({len(datos) // 1024} KB)")
@@ -280,9 +387,10 @@ def ep_vista_previa(h, q):
     h.requiere()
     desde, hasta = _rango(q)
     res = int(q["res"]) if q.get("res") else None
-    enc, filas, meta = exportar.tabla(q.get("fuente", "minuto"), desde, hasta,
-                                      _vars(q, consultas.variables_disponibles()), res,
-                                      int(q.get("intervalo", 30)), q.get("metodo", "media"))
+    with _Pesada():
+        enc, filas, meta = exportar.tabla(q.get("fuente", "minuto"), desde, hasta,
+                                          _vars(q, consultas.variables_disponibles()), res,
+                                          int(q.get("intervalo", 30)), q.get("metodo", "media"))
     h.json({"encabezados": enc, "filas": filas[:200], "total": len(filas), "meta": meta})
 
 
@@ -337,6 +445,7 @@ def ep_auditoria(h, q):
 
 
 RUTAS = {
+    ("GET", r"/robots\.txt"): ep_robots,
     ("GET", r"/api/estado"): ep_estado,
     ("GET", r"/api/meta"): ep_meta,
     ("GET", r"/api/serie"): ep_serie,
@@ -355,6 +464,10 @@ RUTAS = {
     ("DELETE", r"/api/usuarios/(\d+)"): ep_borrar_usuario,
     ("GET", r"/api/auditoria"): ep_auditoria,
 }
+
+
+RUTAS_PESADAS = {"/api/serie", "/api/promediado/movil", "/api/promediado/archivo", "/api/exportar",
+                 "/api/vista-previa"}
 
 
 def configurar_log() -> None:

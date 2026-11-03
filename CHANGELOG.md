@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.1.0 — 2026-11-03
+
+### Agregado
+- Respaldos automáticos diarios en caliente (`davis_monitor.respaldo`): verificados con integrity_check + SHA-256, retención de 7 diarios + 4 semanales + 12 mensuales, copia opcional a un disco extra, `davis respaldo [listar|verificar]`.
+
+### Mejorado (dashboard, ahora público)
+- Agregación de series **dentro de SQLite** (GROUP BY): 40 consultas pesadas simultáneas pasaron de 50 s / 369 MB a 0.3 s / 48 MB.
+- Caché de respuestas (20 s), máximo 3 consultas pesadas simultáneas (503 si se satura), límite por IP (429), tope de 6 000 puntos por serie.
+- gzip (ECharts: 1 MB → 333 KB), ETag/304, HSTS, `robots.txt`, 404 real en `/api/*`.
+
+### Corregido
+- Tarjetas de VPD y Enlace SDR que parpadeaban como "dato viejo" cada 5 s (`classList.toggle` con `undefined`).
+
 Continúa el historial de [davis-sdr-greenhouse](https://github.com/Sibajx/davis-sdr-greenhouse) (versiones ≤ 2.3.0, la del artículo).
 
 ## 3.0.0 — 2026-11-03 · davis_web 1.0.0

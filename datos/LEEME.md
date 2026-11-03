@@ -10,6 +10,7 @@ Esta carpeta la crea y la llena el programa (no se sube a git). Rutas definidas 
 | `logs/davis_monitor.log` | Log rotativo (5 × 5 MB → `.log.1` … `.log.5`) | continuo | diagnóstico |
 | `estado/estado.json` | Último estado en vivo (lo lee `--visor`, dashboards) | cada 5 s | visor |
 | `exportaciones/` | CSV que saques con `python3 -m davis_monitor.basedatos exportar` | a pedido | tú |
+| `respaldos/` | Respaldos automáticos diarios (ver guía §14) | 1/día | recuperación |
 | `legado_v23/` | Copia intacta de `~/capturas_davis` (datos crudos de la v2.3: base, log, CSV) | fijo | respaldo |
 
 Comandos útiles (desde la raíz del proyecto):

@@ -175,6 +175,42 @@ class TestAPI(unittest.TestCase):
         self.assertEqual((st, d["resolucion"], len(d["t"])), (200, 300, 12))
         self.assertEqual(json.loads(self.pedir("/api/estado")[2])["conexion"], "fuera_de_linea")
 
+    def test_api_inexistente_404_y_robots(self):
+        self.assertEqual(self.pedir("/api/no-existe")[0], 404)
+        st, _, b = self.pedir("/robots.txt")
+        self.assertEqual((st, b), (200, b"User-agent: *\nDisallow: /api/\n"))
+
+    def test_gzip_y_etag(self):
+        req = urllib.request.Request(self.url + "/vendor/echarts.min.js", headers={"Accept-Encoding": "gzip"})
+        with urllib.request.urlopen(req) as r:
+            self.assertEqual(r.headers["Content-Encoding"], "gzip")
+            etag, tam = r.headers["ETag"], len(r.read())
+        self.assertLess(tam, 500_000)                       # ~1 MB → ~330 KB
+        req = urllib.request.Request(self.url + "/vendor/echarts.min.js", headers={"If-None-Match": etag})
+        with self.assertRaises(urllib.error.HTTPError) as e:   # urllib trata 304 como error
+            urllib.request.urlopen(req)
+        self.assertEqual(e.exception.code, 304)
+        e.exception.close()
+        self.assertIn("max-age", self.pedir("/")[1]["Strict-Transport-Security"])
+
+    def test_limite_por_ip(self):
+        from davis_web import servidor
+        viejo = servidor.LIMITES["api"]
+        servidor._HITS.clear()            # otros tests ya sumaron peticiones desde 127.0.0.1
+        servidor.LIMITES["api"] = (3, 60)
+        try:
+            codigos = [self.pedir("/api/estado")[0] for _ in range(5)]
+        finally:
+            servidor.LIMITES["api"] = viejo
+            servidor._HITS.clear()
+        self.assertEqual(codigos[:3], [200, 200, 200])
+        self.assertEqual(codigos[3:], [429, 429])
+
+    def test_serie_tope_de_puntos(self):
+        from davis_web import consultas as C
+        d = json.loads(self.pedir(f"/api/serie?desde={T0 - 300 * 86400}&hasta={T0}&vars=temp&res=60")[2])
+        self.assertLessEqual((300 * 86400) / d["resolucion"], C.MAX_PUNTOS)   # 1 min pedido → se sube solo
+
     def test_privado_requiere_sesion(self):
         for r in ("/api/promediado/archivo", "/api/exportar", "/api/usuarios", "/api/vista-previa"):
             self.assertEqual(self.pedir(r)[0], 401, r)

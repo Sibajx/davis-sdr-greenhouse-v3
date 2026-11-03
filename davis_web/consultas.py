@@ -135,11 +135,70 @@ def _agregar(valores: List[float], agg: str) -> Optional[float]:
     return None
 
 
+MAX_PUNTOS = 6000        # tope por serie: protege a la Pi de consultas enormes (sitio público)
+_MATH: Dict[str, bool] = {}
+
+
+def _tiene_math(c: sqlite3.Connection, ruta: str) -> bool:
+    if ruta not in _MATH:
+        try:
+            c.execute("SELECT sin(radians(1)), cos(0)").fetchone()
+            _MATH[ruta] = True
+        except sqlite3.OperationalError:   # SQLite compilado sin funciones matemáticas
+            _MATH[ruta] = False
+    return _MATH[ruta]
+
+
+def _serie_sql(desde: float, hasta: float, claves: List[str], res: int) -> Dict[int, list]:
+    """Agrega DENTRO de SQLite (GROUP BY cubeta): no carga cientos de miles de filas en
+    Python. Cubeta = ceil(ts/res)*res → cada punto se etiqueta al final de su intervalo."""
+    por_cubeta: Dict[int, list] = {}
+    for ruta in _bases():
+        try:
+            c = _conectar(ruta)
+            math_ok = _tiene_math(c, ruta)
+            exprs = []
+            for k in claves:
+                col, agg = VARIABLES[k][0], VARIABLES[k][1]
+                if agg == "circ":
+                    exprs += ([f"AVG(sin(radians({col})))", f"AVG(cos(radians({col})))"] if math_ok
+                              else ["NULL", "NULL"])
+                else:
+                    exprs.append(f"{ {'avg': 'AVG', 'max': 'MAX', 'min': 'MIN', 'sum': 'SUM'}[agg] }({col})")
+            sql = (f"SELECT CAST((ts_unix - 0.001) / {int(res)} AS INTEGER) + 1 AS b, {', '.join(exprs)} "
+                   f"FROM resumen WHERE ts_unix > ? AND ts_unix <= ? GROUP BY b ORDER BY b")
+            for f in c.execute(sql, (desde, hasta)):
+                fila, i = [], 1
+                for k in claves:
+                    if VARIABLES[k][1] == "circ":
+                        sn, cs = f[i], f[i + 1]
+                        i += 2
+                        fila.append(None if sn is None or (abs(sn) < 1e-9 and abs(cs) < 1e-9)
+                                    else math.degrees(math.atan2(sn, cs)) % 360)
+                    else:
+                        fila.append(f[i])
+                        i += 1
+                por_cubeta[int(f[0]) * res] = fila   # la base activa (última) gana en la cubeta frontera
+            c.close()
+        except sqlite3.Error:
+            continue
+    return por_cubeta
+
+
 def serie(desde: float, hasta: float, claves: Sequence[str], resolucion: Optional[int] = None) -> dict:
-    """Series agregadas a `resolucion` segundos. Cada punto se etiqueta al FINAL de su intervalo."""
+    """Series agregadas a `resolucion` segundos. Cada punto se etiqueta al FINAL de su intervalo.
+    Si la resolución pedida daría más de MAX_PUNTOS puntos, se sube automáticamente."""
     claves = [k for k in claves if k in variables_disponibles()]
     res = resolucion if resolucion in RESOLUCIONES else resolucion_auto(hasta - desde)
+    if (hasta - desde) / res > MAX_PUNTOS:
+        res = resolucion_auto(hasta - desde, MAX_PUNTOS)
     cols = [VARIABLES[k][0] for k in claves]
+    if res > 60 and claves:
+        cub = _serie_sql(desde, hasta, claves, res)
+        orden = sorted(cub)
+        datos = {k: [_red(cub[b][i], VARIABLES[k][4]) for b in orden] for i, k in enumerate(claves)}
+        return {"desde": desde, "hasta": hasta, "resolucion": res, "t": [int(b) for b in orden],
+                "series": datos, "variables": {k: variables_disponibles()[k] for k in claves}}
     filas = filas_resumen(desde, hasta, cols) if cols else []
     t, datos = [], {k: [] for k in claves}
     if res == 60:

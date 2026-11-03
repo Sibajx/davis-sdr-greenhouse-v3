@@ -25,6 +25,8 @@
   "dias_retener_sin_comprimir": 7,
   "comprimir_historial_resumen": true,
 
+  "dir_respaldos_extra": "",
+
   "webhook_url": "",
   "webhook_formato": "ntfy",
   "webhook_timeout_seg": 5,
