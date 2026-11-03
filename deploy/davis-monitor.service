@@ -1,0 +1,53 @@
+# davis_monitor v3 — unidad systemd para ESTA máquina (usuario alternas, Raspberry Pi).
+#
+# Diferencias con la unidad anterior (que fallaba con status=217/USER):
+#   * User/Group = alternas (el usuario "sibajx" no existe aquí).
+#   * No depende de "pip install": el paquete solo usa la biblioteca estándar,
+#     así que se ejecuta directo con python3 -m desde la carpeta del proyecto.
+#   * Type=notify + WatchdogSec: si el bucle principal se cuelga, systemd lo
+#     reinicia (el programa envía WATCHDOG=1 cada segundo).
+#   * Logs también en journalctl (además de datos/logs/davis_monitor.log).
+#   * Todo lo generado queda en <proyecto>/datos/ (csv, db, logs, estado...).
+#   * Límite de reinicios: ya no puede quedar en un bucle infinito cada 5 s.
+#
+# Instalar:  sudo bash deploy/instalar_servicio.sh
+
+[Unit]
+Description=Monitor Davis Vantage Pro 2 vía RTL-SDR (davis_monitor v3)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=900
+StartLimitBurst=10
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=alternas
+Group=alternas
+SupplementaryGroups=plugdev
+WorkingDirectory=/home/alternas/Escritorio/files/davis_v2
+ExecStart=/usr/bin/python3 -m davis_monitor --headless
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+# Environment=DAVIS_WEBHOOK_URL=https://ntfy.sh/GreenHouse
+# Environment=DAVIS_WEBHOOK_FORMATO=ntfy
+
+Restart=always
+RestartSec=10
+TimeoutStartSec=60
+TimeoutStopSec=30
+WatchdogSec=120
+KillMode=control-group
+
+# Endurecimiento: solo puede escribir en <proyecto>/datos (todo lo generado vive ahí).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/alternas/Escritorio/files/davis_v2/datos
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,36 @@
+{
+  "_comentario": "Copia a config.json (en esta carpeta) o usa DAVIS_CONFIG_FILE. Las variables DAVIS_<CLAVE_EN_MAYUSCULAS> ganan sobre este archivo. Borra lo que no cambies. dir_datos relativo = dentro del proyecto.",
+
+  "dir_datos": "datos",
+  "log_level": "INFO",
+
+  "tx_id_objetivo": 0,
+  "tamano_cubeta_mm": 0.2,
+  "campos_requeridos": "temp,humedad,viento_vel",
+  "max_edad_dato_seg": 600,
+
+  "rtldavis_cmd": "rtldavis",
+  "rtldavis_args": "-tf US",
+  "watchdog_sync_seg": 150,
+  "watchdog_sin_paquetes_seg": 90,
+  "fallo_rapido_seg": 10,
+  "backoff_inicial_seg": 2,
+  "backoff_max_seg": 60,
+
+  "intervalo_csv_seg": 60,
+  "intervalo_commit_seg": 15,
+  "intervalo_heartbeat_seg": 900,
+  "intervalo_estado_json_seg": 5,
+  "guardar_tramas_sqlite": true,
+  "dias_retener_sin_comprimir": 7,
+  "comprimir_historial_resumen": true,
+
+  "webhook_url": "",
+  "webhook_formato": "ntfy",
+  "webhook_timeout_seg": 5,
+  "cooldown_alerta_bateria_seg": 1800,
+  "umbral_helada_c": 2.0,
+  "histeresis_helada_c": 1.0,
+  "umbral_tormenta_mm_h": 25.0,
+  "alerta_sin_datos_seg": 900
+}

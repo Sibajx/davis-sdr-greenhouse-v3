@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "davis-monitor"
+version = "3.0.0"
+description = "Monitor de estación Davis Vantage Pro 2 vía RTL-SDR (rtldavis)"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+yaml = ["pyyaml>=6.0"]
+
+[project.scripts]
+davis-monitor = "davis_monitor.__main__:main"
+davis-web = "davis_web.__main__:main"
+
+[tool.setuptools]
+packages = ["davis_monitor", "davis_web"]
+
+[tool.setuptools.package-data]
+davis_web = ["static/*", "static/vendor/*"]

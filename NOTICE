@@ -1,0 +1,11 @@
+davis-sdr-greenhouse v3
+Copyright (c) 2026 los autores listados en LICENSE. Licencia MIT.
+
+Incluye software de terceros:
+- Apache ECharts 5.5.1 (davis_web/static/vendor/echarts.min.js)
+  Copyright The Apache Software Foundation. Licencia Apache 2.0:
+  https://www.apache.org/licenses/LICENSE-2.0
+
+Usa en tiempo de ejecución (no incluido): rtldavis, fork de lheijst
+(https://github.com/lheijst/rtldavis), y opcionalmente matplotlib para
+exportar gráficas PNG.

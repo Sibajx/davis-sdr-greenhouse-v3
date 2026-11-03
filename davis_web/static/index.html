@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="es" data-tema="oscuro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estación Davis · Invernadero</title>
+<meta name="description" content="Monitoreo en tiempo real de la estación meteorológica Davis Vantage Pro 2 vía SDR">
+<link rel="icon" href="/icono.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/estilos.css">
+<script src="/vendor/echarts.min.js" defer></script>
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header class="barra">
+  <div class="marca">
+    <svg viewBox="0 0 32 32" class="logo" aria-hidden="true"><circle cx="16" cy="16" r="6" class="logo-sol"/><path d="M16 2v4M16 26v4M2 16h4M26 16h4M6 6l3 3M23 23l3 3M6 26l3-3M23 9l3-3" class="logo-rayos"/></svg>
+    <div>
+      <h1 id="titulo">Estación Davis · Invernadero</h1>
+      <p class="sub">Vantage Pro 2 · receptor SDR</p>
+    </div>
+  </div>
+  <div class="estado-conexion" id="conexion" data-estado="cargando" title="Estado del receptor">
+    <span class="punto"></span><span class="texto">Conectando…</span>
+  </div>
+  <div class="acciones">
+    <span class="reloj" id="reloj"></span>
+    <button class="icono-btn" id="btn-tema" title="Cambiar tema" aria-label="Cambiar tema">◐</button>
+    <button class="btn" id="btn-login">Iniciar sesión</button>
+    <div class="menu-usuario oculto" id="menu-usuario">
+      <button class="btn btn-sec" id="btn-usuario"></button>
+      <div class="desplegable" id="desplegable">
+        <button id="btn-mi-clave">Cambiar contraseña</button>
+        <button id="btn-logout">Cerrar sesión</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<nav class="pestanas" id="pestanas">
+  <a href="#vivo" data-tab="vivo">En vivo</a>
+  <a href="#historico" data-tab="historico">Histórico</a>
+  <a href="#promediado" data-tab="promediado" class="privada">Promediado Davis <i>🔒</i></a>
+  <a href="#consultor" data-tab="consultor" class="privada">Consultor de datos <i>🔒</i></a>
+  <a href="#usuarios" data-tab="usuarios" class="solo-admin oculto">Usuarios</a>
+</nav>
+
+<div class="aviso oculto" id="aviso-offline">
+  <span>⚠</span>
+  <div><b id="aviso-titulo">Sistema fuera de línea.</b> <span id="aviso-motivo"></span> Se muestran los últimos datos disponibles.</div>
+  <button class="btn btn-sec" id="btn-ver-historico">Ver valores históricos</button>
+</div>
+
+<main>
+  <!-- ======================= EN VIVO ======================= -->
+  <section id="tab-vivo" class="tab">
+    <div class="tarjetas" id="tarjetas"></div>
+    <div class="fila-titulo">
+      <h2>Tendencias <small id="vivo-rango-txt"></small></h2>
+      <div class="segmentado" id="vivo-rango">
+        <button data-h="1">1 h</button><button data-h="6" class="activo">6 h</button>
+        <button data-h="24">24 h</button><button data-h="48">48 h</button>
+      </div>
+    </div>
+    <div class="rejilla-graficas" id="graficas-vivo"></div>
+  </section>
+
+  <!-- ======================= HISTÓRICO ======================= -->
+  <section id="tab-historico" class="tab oculto">
+    <div class="panel filtros">
+      <div class="campo"><label>Desde</label><input type="datetime-local" id="h-desde"></div>
+      <div class="campo"><label>Hasta</label><input type="datetime-local" id="h-hasta"></div>
+      <div class="campo"><label>Resolución</label>
+        <select id="h-res"><option value="">Automática</option></select></div>
+      <div class="campo atajos"><label>Atajos</label>
+        <div class="segmentado" id="h-atajos">
+          <button data-p="hoy">Hoy</button><button data-p="ayer">Ayer</button>
+          <button data-p="7">7 días</button><button data-p="30">30 días</button><button data-p="todo">Todo</button>
+        </div></div>
+      <button class="btn" id="h-consultar">Consultar</button>
+    </div>
+    <div class="chips" id="h-vars"></div>
+    <div class="estadisticas" id="h-stats"></div>
+    <div class="rejilla-graficas una" id="graficas-historico"></div>
+  </section>
+
+  <!-- ======================= PROMEDIADO ======================= -->
+  <section id="tab-promediado" class="tab oculto">
+    <div class="bloqueo oculto"><p>🔒 Inicia sesión para ver el promediado tipo consola Davis.</p><button class="btn abrir-login">Iniciar sesión</button></div>
+    <div class="contenido-privado">
+      <div class="panel explicacion">
+        <b>Método Davis (registro de archivo).</b> Cada valor es el promedio <i>retrospectivo</i> de la ventana elegida y termina exactamente en su marca de tiempo, igual que la consola Davis/WiFiLogger. Es el método validado por el equipo (media móvil de 30 min, mínimo 15 muestras). El método <i>integral</i> pondera por tiempo las tramas crudas (∫x·dt / ∫dt).
+      </div>
+      <div class="panel filtros">
+        <div class="campo"><label>Desde</label><input type="datetime-local" id="p-desde"></div>
+        <div class="campo"><label>Hasta</label><input type="datetime-local" id="p-hasta"></div>
+        <div class="campo"><label>Intervalo</label><select id="p-intervalo"></select></div>
+        <div class="campo"><label>Método</label>
+          <select id="p-metodo"><option value="media">Media (validado)</option><option value="integral">Integral temporal</option></select></div>
+        <button class="btn" id="p-consultar">Calcular</button>
+      </div>
+      <div class="rejilla-graficas" id="graficas-promediado"></div>
+      <div class="panel">
+        <div class="fila-titulo"><h3>Registros de archivo <small id="p-total"></small></h3>
+          <button class="btn btn-sec" id="p-descargar">Descargar CSV</button></div>
+        <div class="tabla-scroll"><table class="tabla" id="p-tabla"></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= CONSULTOR ======================= -->
+  <section id="tab-consultor" class="tab oculto">
+    <div class="bloqueo oculto"><p>🔒 Inicia sesión para consultar y descargar datos.</p><button class="btn abrir-login">Iniciar sesión</button></div>
+    <div class="contenido-privado">
+      <div class="panel pasos">
+        <div class="paso"><span class="n">1</span><div class="campo"><label>Fuente de datos</label>
+          <select id="c-fuente">
+            <option value="minuto">Resumen (1 min o agregado)</option>
+            <option value="promediado">Promediado tipo Davis</option>
+            <option value="tramas">Tramas crudas (máx. 31 días)</option>
+          </select></div></div>
+        <div class="paso"><span class="n">2</span>
+          <div class="campo"><label>Desde (día y hora)</label><input type="datetime-local" id="c-desde"></div>
+          <div class="campo"><label>Hasta (día y hora)</label><input type="datetime-local" id="c-hasta"></div></div>
+        <div class="paso" id="c-op-minuto"><span class="n">3</span><div class="campo"><label>Resolución</label>
+          <select id="c-res"><option value="">Automática</option></select></div></div>
+        <div class="paso oculto" id="c-op-prom"><span class="n">3</span>
+          <div class="campo"><label>Intervalo</label><select id="c-intervalo"></select></div>
+          <div class="campo"><label>Método</label><select id="c-metodo"><option value="media">Media</option><option value="integral">Integral</option></select></div></div>
+        <div class="paso"><span class="n">4</span><div class="campo"><label>Formatos</label>
+          <div class="checks">
+            <label><input type="checkbox" value="csv" checked> CSV</label>
+            <label><input type="checkbox" value="txt"> TXT</label>
+            <label><input type="checkbox" value="png"> Gráficas PNG</label>
+          </div></div></div>
+      </div>
+      <div class="chips" id="c-vars"></div>
+      <div class="botonera">
+        <button class="btn btn-sec" id="c-previa">Vista previa</button>
+        <button class="btn" id="c-descargar">⬇ Descargar</button>
+        <button class="btn btn-sec" id="c-png-pantalla">Guardar gráfica de la vista previa</button>
+      </div>
+      <div class="rejilla-graficas una" id="graficas-consultor"></div>
+      <div class="panel oculto" id="c-panel-tabla">
+        <h3>Vista previa <small id="c-total"></small></h3>
+        <div class="tabla-scroll"><table class="tabla" id="c-tabla"></table></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= USUARIOS ======================= -->
+  <section id="tab-usuarios" class="tab oculto">
+    <div class="panel">
+      <h3>Nueva cuenta</h3>
+      <form id="form-usuario" class="filtros" autocomplete="off">
+        <div class="campo"><label>Usuario</label><input name="usuario" required pattern="[a-zA-Z0-9._-]{3,32}"></div>
+        <div class="campo"><label>Nombre</label><input name="nombre"></div>
+        <div class="campo"><label>Contraseña inicial</label><input name="clave" type="password" required minlength="10" autocomplete="new-password"></div>
+        <div class="campo"><label>Rol</label><select name="rol"><option value="usuario">Usuario (consulta y descarga)</option><option value="admin">Administrador</option></select></div>
+        <label class="check-linea"><input type="checkbox" name="cambiar_clave" checked> Pedir cambio de contraseña al entrar</label>
+        <button class="btn">Crear cuenta</button>
+      </form>
+    </div>
+    <div class="panel">
+      <h3>Cuentas</h3>
+      <div class="tabla-scroll"><table class="tabla" id="tabla-usuarios"></table></div>
+    </div>
+    <div class="panel">
+      <h3>Actividad reciente</h3>
+      <div class="tabla-scroll alta"><table class="tabla" id="tabla-auditoria"></table></div>
+    </div>
+  </section>
+</main>
+
+<footer class="pie"><span id="pie-version"></span> · Datos: estación Davis Vantage Pro 2 vía RTL-SDR · <span id="pie-rango"></span></footer>
+
+<!-- modales -->
+<div class="modal oculto" id="modal-login" role="dialog" aria-modal="true" aria-labelledby="login-titulo">
+  <form class="caja" id="form-login">
+    <h3 id="login-titulo">Iniciar sesión</h3>
+    <div class="campo"><label>Usuario</label><input name="usuario" autocomplete="username" required></div>
+    <div class="campo"><label>Contraseña</label><input name="clave" type="password" autocomplete="current-password" required></div>
+    <p class="error" id="login-error"></p>
+    <div class="botonera"><button type="button" class="btn btn-sec cerrar-modal">Cancelar</button><button class="btn">Entrar</button></div>
+  </form>
+</div>
+<div class="modal oculto" id="modal-clave" role="dialog" aria-modal="true">
+  <form class="caja" id="form-clave">
+    <h3>Cambiar contraseña</h3>
+    <p class="nota" id="clave-nota"></p>
+    <div class="campo"><label>Contraseña actual</label><input name="actual" type="password" autocomplete="current-password" required></div>
+    <div class="campo"><label>Nueva (mín. 10, letras y números)</label><input name="nueva" type="password" autocomplete="new-password" minlength="10" required></div>
+    <div class="campo"><label>Repite la nueva</label><input name="nueva2" type="password" autocomplete="new-password" required></div>
+    <p class="error" id="clave-error"></p>
+    <div class="botonera"><button type="button" class="btn btn-sec cerrar-modal">Cancelar</button><button class="btn">Guardar</button></div>
+  </form>
+</div>
+<div class="modal oculto" id="modal-grafica" role="dialog" aria-modal="true">
+  <div class="caja grande">
+    <div class="fila-titulo"><h3 id="mg-titulo"></h3>
+      <div><button class="btn btn-sec" id="mg-png">PNG</button> <button class="btn btn-sec cerrar-modal">Cerrar</button></div></div>
+    <div class="grafica-grande" id="mg-grafica"></div>
+  </div>
+</div>
+<div class="toasts" id="toasts"></div>
+</body>
+</html>

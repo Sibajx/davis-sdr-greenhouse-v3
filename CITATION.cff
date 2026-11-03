@@ -1,0 +1,49 @@
+cff-version: 1.2.0
+message: >-
+  Esta es la versión 3 del software del proyecto davis-sdr-greenhouse.
+  Si usas este software, cita el artículo asociado (preferred-citation) y el
+  repositorio original, donde están el manuscrito y los datos del paper.
+title: "davis-sdr-greenhouse v3: receptor Davis Vantage Pro 2 vía RTL-SDR con dashboard web"
+type: software
+version: "3.0.0"
+date-released: "2026-11-03"
+license: MIT
+repository-code: "https://github.com/Sibajx/davis-sdr-greenhouse-v3"
+authors:
+  - family-names: "Juárez-Rosales"
+    given-names: "Mario U."
+  - family-names: "Ramírez-Sibaja"
+    given-names: "Alexis"
+  - family-names: "Cruz-Martínez"
+    given-names: "María S."
+  - family-names: "Nicolas-Bautista"
+    given-names: "Hariel"
+  - family-names: "Sánchez-Domínguez"
+    given-names: "Diego"
+  - family-names: "Hernández-Flores"
+    given-names: "Omar A."
+    email: "ohernandez.ciencias@uabjo.mx"
+references:
+  - type: software
+    title: "davis-sdr-greenhouse (v2.3, versión del artículo)"
+    url: "https://github.com/Sibajx/davis-sdr-greenhouse"
+    repository-code: "https://github.com/Sibajx/davis-sdr-greenhouse"
+    authors:
+      - name: "Juárez-Rosales, Ramírez-Sibaja, Cruz-Martínez, Nicolas-Bautista, Sánchez-Domínguez, Hernández-Flores"
+preferred-citation:
+  type: article
+  title: "A Low-Cost SDR-Based Edge IoT Architecture for Real-Time Decoding of Weather Telemetry in Cyber-Physical Greenhouse Drying Systems"
+  authors:
+    - family-names: "Juárez-Rosales"
+      given-names: "Mario U."
+    - family-names: "Ramírez-Sibaja"
+      given-names: "Alexis"
+    - family-names: "Cruz-Martínez"
+      given-names: "María S."
+    - family-names: "Nicolas-Bautista"
+      given-names: "Hariel"
+    - family-names: "Sánchez-Domínguez"
+      given-names: "Diego"
+    - family-names: "Hernández-Flores"
+      given-names: "Omar A."
+  journal: "International Journal of Sustainable Agricultural Management and Informatics"

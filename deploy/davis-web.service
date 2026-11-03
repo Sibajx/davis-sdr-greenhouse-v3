@@ -1,0 +1,34 @@
+# Dashboard web de la estación Davis (davis_web). Escucha solo en 127.0.0.1:8090;
+# desde internet se entra por el túnel de Cloudflare (cloudflared → localhost:8090).
+# Instalar: sudo bash deploy/instalar_web.sh
+[Unit]
+Description=Dashboard web estación Davis (davis_web)
+After=network-online.target davis-monitor.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=alternas
+Group=alternas
+WorkingDirectory=/home/alternas/Escritorio/files/davis_v2
+ExecStart=/usr/bin/python3 -m davis_web
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=MPLCONFIGDIR=/home/alternas/Escritorio/files/davis_v2/datos/web/.matplotlib
+Restart=always
+RestartSec=5
+# Endurecimiento: solo escribe en datos/web, datos/logs y (por SQLite WAL) datos/db.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/alternas/Escritorio/files/davis_v2/datos/web /home/alternas/Escritorio/files/davis_v2/datos/logs /home/alternas/Escritorio/files/davis_v2/datos/db
+# (datos/db es escribible solo porque SQLite en modo WAL necesita el archivo -shm
+#  incluso para leer; el código abre las bases con mode=ro + query_only)
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+MemoryMax=400M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+# Datos generados por el programa (no van al repositorio)
+datos/*
+!datos/LEEME.md
+config.json
+config.yaml
+__pycache__/
+*.pyc
