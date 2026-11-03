@@ -539,6 +539,13 @@ navegador ──HTTPS──▶ Cloudflare ──túnel──▶ cloudflared (Pi)
 - **Huecos:** donde faltan datos, la línea se corta; nunca se inventa una unión.
 - Cada gráfica tiene botón **PNG** y **⤢** (ampliar con zoom). Hay tema oscuro/claro (◐) y diseño adaptado a celular.
 
+### 13.1b Acceso público y Cloudflare Access
+
+La cuenta de Cloudflare tiene una aplicación de Access, **"Subdominios s-dev (equipo)"**, que protege `*.s-dev.win`. Para que el dashboard sea público hay una aplicación específica, **"davis (publico)"** (`davis.s-dev.win`, política *publico → Bypass → Everyone*), igual que las de `ashli` y `lealtad`. La regla más específica gana, así que solo este subdominio queda abierto.
+
+- **Volver a restringirlo:** en Zero Trust → Access → Applications, elimina "davis (publico)". El sitio vuelve a pedir el login del equipo.
+- **Dentro del laboratorio:** el FortiGate bloquea `s-dev.win` (categoría "Newly Registered Domain"). Hay que pedir a TI que lo permita.
+
 ### 13.2 Promediado "método Davis"
 
 Porta el método de `generar_prueba_promediado_davis.py` (validado contra el WiFiLogger):
