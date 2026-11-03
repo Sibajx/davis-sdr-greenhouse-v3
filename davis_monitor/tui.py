@@ -74,8 +74,10 @@ class MotorInterfazTUI:
             w = (ancho - 4) // 2
             xr = w + 3
             up = int(ahora - self.core.hora_inicio)
+            modo = getattr(self.core, "etiqueta_modo", "")
             titulo = (f" 📡 ESTACIÓN DAVIS VP2 │ {datetime.now():%Y-%m-%d %H:%M:%S} │ "
-                      f"UPTIME {up // 3600:02d}:{up % 3600 // 60:02d}:{up % 60:02d} ")
+                      f"UPTIME {up // 3600:02d}:{up % 3600 // 60:02d}:{up % 60:02d}"
+                      f"{' │ MODO ' + modo if modo else ''} ")
             self.put(scr, 0, max(0, (ancho - len(titulo)) // 2), titulo,
                      curses.color_pair(4) | B | curses.A_REVERSE)
 
@@ -123,6 +125,7 @@ class MotorInterfazTUI:
                                  f" │ Reinicios {s.reinicios} (último {s.ultimo_reinicio})")
             self.put(scr, 19, 3, f"{s.estado_csv}", curses.color_pair(2))
             self.put(scr, 20, 3, f"Última trama: {s.ultima_trama}", curses.A_DIM)
-            self.put(scr, 22, 3, "q = salir", curses.color_pair(3) | B)
+            self.put(scr, 22, 3, "q = salir" + (" (el servicio sigue capturando)" if getattr(self.core, "etiqueta_modo", "") else ""),
+                     curses.color_pair(3) | B)
             scr.refresh()
             time.sleep(0.25)

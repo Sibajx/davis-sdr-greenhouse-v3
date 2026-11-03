@@ -77,7 +77,7 @@ davis_v2/
 │   ├── visor.py              visor de solo lectura
 │   └── migrar.py             re-decodifica la base de la v2.3 con el protocolo corregido
 ├── davis_web/                dashboard web (sección 13)
-├── tests/                    54 pruebas automáticas
+├── tests/                    55 pruebas automáticas
 ├── deploy/
 │   ├── davis-monitor.service unidad systemd
 │   ├── instalar_servicio.sh  instalador (sudo)
@@ -141,6 +141,23 @@ ls datos/csv/2026/11/                               # un CSV por día
 
 *Todos los comandos se corren desde `~/Escritorio/files/davis_v2`, salvo los de `systemctl`/`journalctl`, que funcionan desde cualquier lado.*
 
+### 4.0 El lanzador `davis` (lo más cómodo)
+
+Ícono **"Estación Davis"** en el Escritorio, o en una terminal:
+
+| Comando | Qué hace |
+|---|---|
+| `davis` | Arranca los servicios que estén detenidos (pide contraseña si hace falta) y abre la **TUI conectada al servicio**. `q` sale y **el servicio sigue capturando** |
+| `davis estado` | Estado de los 3 servicios, recepción actual y desconexiones USB de hoy |
+| `davis iniciar` / `detener` / `reiniciar` | Los tres servicios a la vez (receptor, dashboard, túnel) |
+| `davis logs` | Log del receptor en vivo |
+| `davis visor` | Visor compacto |
+| `davis calidad [días]` | Eficiencia de recepción |
+| `davis web` | Abre el dashboard |
+| `davis tui-directa` | TUI clásica usando el dongle: detiene el servicio y lo reanuda al salir |
+
+> La TUI de `davis` **no abre el dongle**: lee lo que publica el servicio (`estado.json` cada 5 s y la tabla `resumen` para las tendencias), así que nunca pelea con él. En el título aparece `MODO SERVICIO`. La trama cruda y el contador de lluvia solo se ven en `tui-directa`.
+
 ### 4.1 Servicio (systemd)
 
 | Comando | Qué hace |
@@ -168,7 +185,7 @@ ls datos/csv/2026/11/                               # un CSV por día
 | `python3 -m davis_monitor --test-webhook` | Manda una notificación de prueba al celular |
 | `python3 -m davis_monitor --replay archivo.txt` | Procesa una salida guardada de rtldavis, sin dongle |
 | `python3 -m davis_monitor --version` | Versión |
-| `python3 -m unittest discover -s tests -t .` | Corre las 54 pruebas |
+| `python3 -m unittest discover -s tests -t .` | Corre las 55 pruebas |
 
 ### 4.3 Consultar y exportar datos
 

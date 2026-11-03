@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Lanzador de la estación Davis.
+#   davis              → verifica/arranca los servicios y abre la TUI conectada al servicio
+#   davis ayuda        → lista de comandos
+set -uo pipefail
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+SERVICIOS=(davis-monitor davis-web cloudflared)
+cd "$DIR"
+
+c_ok=$'\e[32m'; c_mal=$'\e[31m'; c_av=$'\e[33m'; c_b=$'\e[1m'; c_n=$'\e[0m'
+
+estado_servicios() {
+  for s in "${SERVICIOS[@]}"; do
+    if ! systemctl list-unit-files "$s.service" --no-legend 2>/dev/null | grep -q .; then
+      printf "  %-15s %sno instalado%s\n" "$s" "$c_av" "$c_n"
+    elif systemctl is-active --quiet "$s"; then
+      printf "  %-15s %sactivo%s\n" "$s" "$c_ok" "$c_n"
+    else
+      printf "  %-15s %s%s%s\n" "$s" "$c_mal" "$(systemctl is-active "$s")" "$c_n"
+    fi
+  done
+}
+
+asegurar_servicios() {
+  local faltan=()
+  for s in "${SERVICIOS[@]}"; do
+    systemctl list-unit-files "$s.service" --no-legend 2>/dev/null | grep -q . || continue
+    systemctl is-active --quiet "$s" || faltan+=("$s")
+  done
+  if ! systemctl list-unit-files davis-monitor.service --no-legend 2>/dev/null | grep -q .; then
+    echo "${c_mal}El servicio davis-monitor no está instalado.${c_n} Instálalo con:"
+    echo "  sudo bash $DIR/deploy/instalar_servicio.sh"; exit 1
+  fi
+  if ((${#faltan[@]})); then
+    echo "${c_av}Arrancando: ${faltan[*]}${c_n} (puede pedir tu contraseña)"
+    sudo systemctl start "${faltan[@]}" || { echo "${c_mal}No se pudieron arrancar.${c_n}"; exit 1; }
+    sleep 2
+  fi
+}
+
+ayuda() {
+  cat <<AYUDA
+${c_b}davis${c_n} — estación Davis Vantage Pro 2 (receptor + dashboard)
+
+  davis                 arranca los servicios si hace falta y abre la TUI (q = salir; el servicio sigue)
+  davis estado          estado de los servicios y de la recepción
+  davis iniciar         arranca receptor, dashboard y túnel
+  davis detener         detiene los tres (deja de capturar)
+  davis reiniciar       reinicia los tres (p. ej. tras editar config.json)
+  davis logs            log del receptor en vivo (Ctrl+C para salir)
+  davis visor           visor compacto de solo lectura
+  davis calidad [días]  eficiencia de recepción y huecos (por defecto 1 día)
+  davis web             abre el dashboard en el navegador
+  davis tui-directa     TUI usando el dongle directamente (detiene el servicio y lo reanuda al salir)
+  davis ayuda           esta ayuda
+
+Dashboard: https://davis.s-dev.win  ·  local: http://127.0.0.1:8090
+Guía completa: $DIR/docs/GUIA_COMPLETA.md
+AYUDA
+}
+
+case "${1:-tui}" in
+  tui|"")
+    asegurar_servicios
+    exec python3 -m davis_monitor --tui-servicio ;;
+  estado)
+    echo "${c_b}Servicios${c_n}"; estado_servicios; echo
+    python3 - <<'PY'
+import json, os, time
+from davis_monitor import config
+try:
+    d = json.load(open(config.ARCHIVO_ESTADO_JSON)); e, s = d["estacion"], d["sdr"]
+    edad = time.time() - os.path.getmtime(config.ARCHIVO_ESTADO_JSON)
+    print(f"Receptor: {s['estado']} · {s['paquetes_validos']} tramas · calidad {s['calidad_ultima_ventana_pct']}% · "
+          f"reinicios {s['reinicios']} · errores USB {s.get('errores_usb', 0)} · estado de hace {edad:.0f} s")
+    print(f"Ahora:    {e['temp_c']} °C · {e['humedad_pct']} % · viento {e['viento_kmh']} km/h {e['viento_cardinal']} · "
+          f"radiación {e['solar_w_m2']} W/m² · UV {e['uv']}")
+except Exception as ex:
+    print("Sin estado del receptor:", ex)
+PY
+    n=$(journalctl -k --since today --no-pager 2>/dev/null | grep -c "USB disconnect")
+    echo "Desconexiones USB hoy: $n" ;;
+  iniciar)   sudo systemctl start "${SERVICIOS[@]}"; estado_servicios ;;
+  detener)   sudo systemctl stop "${SERVICIOS[@]}"; estado_servicios ;;
+  reiniciar) sudo systemctl restart "${SERVICIOS[@]}"; estado_servicios ;;
+  logs)      exec journalctl -u davis-monitor -f -n 30 ;;
+  visor)     exec python3 -m davis_monitor --visor ;;
+  calidad)   exec python3 -m davis_monitor.basedatos calidad --dias "${2:-1}" ;;
+  web)       xdg-open http://127.0.0.1:8090 >/dev/null 2>&1 & echo "Abriendo http://127.0.0.1:8090 (público: https://davis.s-dev.win)" ;;
+  tui-directa)
+    echo "${c_av}Esto detiene la captura del servicio mientras la TUI usa el dongle.${c_n}"
+    sudo systemctl stop davis-monitor
+    trap 'echo "Reanudando el servicio…"; sudo systemctl start davis-monitor' EXIT
+    python3 -m davis_monitor ;;
+  ayuda|-h|--help) ayuda ;;
+  *) echo "Comando desconocido: $1"; echo; ayuda; exit 1 ;;
+esac

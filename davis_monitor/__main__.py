@@ -2,6 +2,7 @@
     python3 -m davis_monitor              # interfaz de texto (curses)
     python3 -m davis_monitor --headless   # servicio systemd
     python3 -m davis_monitor --visor      # visor de solo lectura de estado.json
+    python3 -m davis_monitor --tui-servicio   # la TUI completa conectada al servicio (no usa el dongle)
     python3 -m davis_monitor --test-webhook
     python3 -m davis_monitor --replay archivo.txt   # procesa una captura de rtldavis sin dongle
 """
@@ -21,6 +22,8 @@ def main() -> None:
     g = p.add_mutually_exclusive_group()
     g.add_argument("--headless", action="store_true", help="sin interfaz (systemd)")
     g.add_argument("--visor", action="store_true", help="visor de solo lectura de estado.json")
+    g.add_argument("--tui-servicio", action="store_true",
+                   help="interfaz de texto conectada al servicio en marcha (no abre el dongle)")
     g.add_argument("--test-webhook", action="store_true")
     g.add_argument("--replay", metavar="ARCHIVO", help="procesa una salida guardada de rtldavis")
     p.add_argument("--version", action="version", version=__version__)
@@ -32,6 +35,16 @@ def main() -> None:
     if a.visor:
         from .visor import ejecutar_visor
         ejecutar_visor()
+        return
+    if a.tui_servicio:
+        import curses
+        from .remoto import NucleoRemoto
+        from .tui import MotorInterfazTUI
+        try:
+            curses.wrapper(MotorInterfazTUI(NucleoRemoto()).ejecutar)
+        except KeyboardInterrupt:
+            pass
+        print("TUI cerrada. El servicio sigue capturando (systemctl status davis-monitor).")
         return
 
     config.preparar_entorno(log_a_stderr=None if a.headless or a.replay else False)

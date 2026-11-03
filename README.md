@@ -37,7 +37,8 @@ El detalle, con evidencia, está en [`docs/reporte_davis.md`](docs/reporte_davis
 davis_v2/
 ├── davis_monitor/     receptor: lanza/vigila rtldavis, decodifica, guarda CSV + SQLite, alertas
 ├── davis_web/         dashboard web (servidor de la biblioteca estándar + ECharts local)
-├── tests/             54 pruebas (python3 -m unittest discover -s tests -t .)
+├── davis              lanzador: servicios + TUI (davis ayuda)
+├── tests/             55 pruebas (python3 -m unittest discover -s tests -t .)
 ├── deploy/            servicios systemd, instaladores, túnel Cloudflare, regla udev
 ├── docs/
 │   ├── GUIA_COMPLETA.md          comandos y funcionamiento de todo el sistema  ← empezar aquí
@@ -65,6 +66,7 @@ davis_v2/
 
 ```bash
 # requisitos: rtldavis (fork lheijst) en el PATH y un dongle RTL-SDR — ver docs/GUIA_COMPLETA.md §11
+./davis                               # con los servicios instalados: los arranca y abre la TUI
 python3 -m unittest discover -s tests -t .
 python3 -m davis_monitor              # interfaz de texto
 sudo bash deploy/instalar_servicio.sh # receptor como servicio

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Estación Davis
+Comment=Arranca el receptor como servicio y abre la interfaz de texto
+Exec=gnome-terminal --title="Estación Davis" --geometry=110x32 -- /home/alternas/Escritorio/files/davis_v2/davis
+Icon=/home/alternas/Escritorio/files/davis_v2/davis_web/static/icono.svg
+Terminal=false
+Categories=Science;Utility;

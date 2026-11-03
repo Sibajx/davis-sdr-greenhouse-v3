@@ -25,4 +25,5 @@ Continúa el historial de [davis-sdr-greenhouse](https://github.com/Sibajx/davis
 - Toda la salida va a `datos/` (CSV organizados por año y mes), con compresión automática.
 - `migrar`: re-decodifica la base de v2.3 con el protocolo corregido.
 - **davis_web**: dashboard en vivo e histórico, promediado tipo consola Davis (método del paper e integral), consultor de datos (CSV, TXT, PNG), cuentas y roles, bitácora y túnel de Cloudflare.
-- 54 pruebas automáticas y CI en GitHub Actions.
+- Lanzador `davis` (+ acceso directo de escritorio): arranca los servicios y abre la TUI conectada al servicio, sin usar el dongle.
+- 55 pruebas automáticas y CI en GitHub Actions.
