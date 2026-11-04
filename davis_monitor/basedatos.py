@@ -60,6 +60,28 @@ CREATE TABLE IF NOT EXISTS resumen (
     paquetes INTEGER, paquetes_esperados INTEGER, calidad_pct REAL
 );
 CREATE INDEX IF NOT EXISTS idx_resumen_ts ON resumen(ts_unix);
+-- calidad del enlace de radio por ventana (contadores del intervalo, no acumulados)
+-- Por ranura de transmisión: validas + danadas + sin_rastro = esperadas (100 %).
+CREATE TABLE IF NOT EXISTS enlace (
+    id INTEGER PRIMARY KEY,
+    ts_unix REAL NOT NULL,
+    segundos REAL,
+    validas INTEGER,          -- transmisiones decodificadas bien
+    esperadas INTEGER,        -- ranuras resueltas (válidas + dañadas + sin rastro)
+    danadas INTEGER,          -- ranuras sin válida pero con CRC fallido: llegó corrupta
+    sin_rastro INTEGER,       -- ranuras sin nada
+    crc_fallos INTEGER,       -- tramas descartadas por CRC (todas)
+    crc_ruido INTEGER,        -- ...fuera de toda ranura (falsas detecciones del demodulador)
+    crc_con_copia INTEGER,    -- ...en una ranura que sí llegó válida
+    perdidas INTEGER,         -- "packet missed" de rtldavis (diagnóstico)
+    invalidas INTEGER,        -- CRC correcto pero contenido imposible
+    otro_tx INTEGER,          -- tramas de otro transmisor
+    errores_usb INTEGER,
+    reinicios INTEGER,        -- reinicios de rtldavis (watchdog / USB)
+    error_freq_hz REAL,       -- desvío de frecuencia medio que reporta rtldavis
+    crc_disponible INTEGER    -- 1 si rtldavis tiene el parche que reporta los CRC
+);
+CREATE INDEX IF NOT EXISTS idx_enlace_ts ON enlace(ts_unix);
 """
 
 _COLS_EVENTO = ("timestamp", "ts_unix", "tipo_paquete", "tx_id", "bateria_baja", "viento_kmh",
@@ -71,6 +93,10 @@ COLS_RESUMEN = ("timestamp", "ts_unix", "segundos", "temp_c", "temp_min_c", "tem
                 "viento_dir_prom", "rafaga_max_kmh", "lluvia_mm", "lluvia_hoy_mm",
                 "lluvia_tasa_max_mm_h", "uv_prom", "uv_max", "radiacion_prom_w_m2",
                 "radiacion_max_w_m2", "bateria_baja", "paquetes", "paquetes_esperados", "calidad_pct")
+COLS_ENLACE = ("ts_unix", "segundos", "validas", "esperadas", "danadas", "sin_rastro", "crc_fallos", "crc_ruido",
+               "crc_con_copia", "perdidas", "invalidas", "otro_tx", "errores_usb", "reinicios", "error_freq_hz",
+               "crc_disponible")
+_SQL_ENLACE = f"INSERT INTO enlace ({','.join(COLS_ENLACE)}) VALUES ({','.join('?' * len(COLS_ENLACE))})"
 _SQL_RESUMEN = f"INSERT INTO resumen ({','.join(COLS_RESUMEN)}) VALUES ({','.join('?' * len(COLS_RESUMEN))})"
 
 
@@ -78,6 +104,10 @@ def abrir(ruta_db: str) -> sqlite3.Connection:
     conn = sqlite3.connect(ruta_db, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
+    # `enlace` de la versión de desarrollo (sin ranuras, unos minutos del 3-nov-2026): se rehace
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(enlace)")}
+    if cols and "danadas" not in cols:
+        conn.execute("DROP TABLE enlace")
     conn.executescript(ESQUEMA)
     conn.commit()
     return conn
@@ -119,6 +149,9 @@ class EscritorSQLite:
     def resumen(self, fila: tuple) -> None:
         self._put(("r", fila))
 
+    def enlace(self, fila: tuple) -> None:
+        self._put(("l", fila))
+
     def _put(self, item) -> None:
         try:
             self._cola.put_nowait(item)
@@ -130,12 +163,15 @@ class EscritorSQLite:
     def _vaciar(self, conn, lote) -> None:
         ev = [f for t, f in lote if t == "e"]
         rs = [f for t, f in lote if t == "r"]
+        en = [f for t, f in lote if t == "l"]
         try:
             with conn:
                 if ev:
                     conn.executemany(_SQL_EVENTO, ev)
                 if rs:
                     conn.executemany(_SQL_RESUMEN, rs)
+                if en:
+                    conn.executemany(_SQL_ENLACE, en)
             self.filas_escritas += len(lote)
         except sqlite3.Error as e:
             self.errores += 1

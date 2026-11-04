@@ -121,7 +121,7 @@ class MotorInterfazTUI:
             self.put(scr, 17, 3, f"Estado: {s.estado} │ {freq} MHz │ canal {s.canal if s.canal is not None else '-'}"
                                  f" │ última sync {s.ultima_sync_seg if s.ultima_sync_seg is not None else '--'} s",
                      curses.color_pair(1) | B)
-            self.put(scr, 18, 3, f"Válidas {s.paquetes} │ CRC fail {s.descartes_crc} │ Otro TX {s.descartes_id}"
+            self.put(scr, 18, 3, f"Válidas {s.paquetes} │ Dañadas {s.danadas} │ Sin rastro {s.sin_rastro} │ CRC {s.descartes_crc}{'' if s.crc_disponible else '*'} (ruido {s.crc_ruido})"
                                  f" │ Reinicios {s.reinicios} (último {s.ultimo_reinicio})")
             self.put(scr, 19, 3, f"{s.estado_csv}", curses.color_pair(2))
             self.put(scr, 20, 3, f"Última trama: {s.ultima_trama}", curses.A_DIM)

@@ -99,6 +99,11 @@ ARCHIVO_DB: str = RUTAS.db
 NIVEL_LOG: int = getattr(logging, str(_valor("log_level", "INFO")).upper(), logging.INFO)
 
 # === Estación / protocolo ===
+# Monitor de CRC: un CRC fallido a ± esta tolerancia del instante en que tocaba una
+# transmisión (periodo exacto del ISS) se cuenta como transmisión DAÑADA; fuera, es ruido.
+# Medido (3-nov-2026): las válidas caen a ≤ 2.2 ms de su ranura y el ruido es plano a
+# ~4.2 CRC/s → con ±5 ms solo ~4 % de las ranuras perdidas se confundiría con "dañada".
+TOLERANCIA_RANURA_SEG: float = _valor("tolerancia_ranura_seg", 0.005, float)
 TX_ID_OBJETIVO: int = _valor("tx_id_objetivo", 0, int)          # 0..7 (consola Davis: ID-1)
 # Cubeta del pluviómetro: 0.2 mm (versión métrica) o 0.254 mm (0.01", versión US)
 TAMANO_CUBETA_MM: float = _valor("tamano_cubeta_mm", 0.2, float)

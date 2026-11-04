@@ -21,6 +21,7 @@ Este documento reemplaza a `INSTALACION.md`, `README_MONITOR.md` y `DOCUMENTACIO
 12. [Estado actual del hardware y pendientes](#12-estado-actual-del-hardware-y-pendientes)
 13. [Dashboard web](#13-dashboard-web)
 14. [Respaldos](#14-respaldos)
+15. [Monitor de recepción y CRC](#15-monitor-de-recepción-y-crc)
 
 ---
 
@@ -531,14 +532,16 @@ navegador ──HTTPS──▶ Cloudflare ──túnel──▶ cloudflared (Pi)
 |---|---|---|
 | **En vivo** | público | Tarjetas con número animado, tendencia ▲▼ y mini gráfica; bandas de VPD y UV; brújula animada; tendencias de 1/6/24/48 h que se actualizan cada minuto |
 | **Histórico** | público | Cualquier rango (atajos hoy, ayer, 7 d, 30 d, todo), variables elegibles, zoom, estadísticas mín/prom/máx |
-| **Promediado Davis** | con sesión | Instantáneo vs. media móvil vs. registros de archivo tipo consola (5–120 min, media o integral), tabla y CSV |
-| **Consultor de datos** | con sesión | Fuente (resumen, promediado, tramas crudas) + día y hora de inicio/fin + variables + resolución → vista previa y descarga **CSV / TXT / PNG** (varios formatos = ZIP) |
+| **Recepción** | público | Monitor de CRC: qué pasó con cada transmisión de la estación (ver §15), cobertura, errores USB y reinicios, para 6 h–30 días |
+| **Promedios Davis** | con sesión | Instantáneo vs. media móvil vs. registros de archivo tipo consola (5–120 min, media o integral), tabla y CSV |
+| **Descargas** | con sesión | Fuente (resumen, promediado, tramas crudas) + día y hora de inicio/fin + variables + resolución → vista previa y descarga **CSV / TXT / PNG** (varios formatos = ZIP) |
 | **Usuarios** | solo admin | Crear, desactivar, cambiar rol, restablecer contraseña y eliminar cuentas, más la bitácora de actividad (logins, descargas) |
 
 - **Animaciones:** cada vez que abres una sección (o vuelves a la pestaña del navegador), las gráficas se crean de nuevo y se dibujan desde cero hasta el último punto.
 - **Fuera de línea:** si el receptor no actualiza `estado.json` por más de 60 s, aparece el aviso rojo. Las gráficas muestran entonces la ventana que termina en el último dato y el botón **Ver valores históricos** abre las últimas 24 h disponibles. Si el enlace está sincronizando, el aviso es amarillo.
 - **Huecos:** donde faltan datos, la línea se corta; nunca se inventa una unión.
-- Cada gráfica tiene botón **PNG** y **⤢** (ampliar con zoom). Hay tema oscuro/claro (◐) y diseño adaptado a celular.
+- Cada gráfica tiene **⤢** (ampliar con zoom) y, **solo con sesión**, **PNG**. El PNG lleva al pie quién lo descargó y cuándo. Hay tema oscuro/claro (◐) y diseño adaptado a celular.
+- Cada sección muestra debajo de las pestañas una línea que explica para qué sirve. Las tarjetas de VPD y UV tienen un botón **?** con la explicación de sus bandas.
 
 ### 13.1b Acceso público y Cloudflare Access
 
@@ -566,6 +569,14 @@ Porta el método de `generar_prueba_promediado_davis.py` (validado contra el WiF
 - El servidor escucha **solo en 127.0.0.1**. Límites de rango por consulta (400 días; 31 días para tramas crudas y método integral).
 - No se puede eliminar ni degradar al último administrador. Desactivar una cuenta o cambiarle la clave cierra sus sesiones.
 - Las cuentas, sesiones y bitácora están en `datos/web/usuarios.db`.
+- **Capturas de pantalla:** ningún sitio web puede impedir una captura hecha por el sistema operativo, una grabación de pantalla o una foto con otro teléfono. Lo que sí hace el dashboard es disuadir y dejar rastro:
+  - marca de agua en toda la página (el usuario y la hora si hay sesión);
+  - impresión deshabilitada (Ctrl+P y vista de impresión);
+  - ImprPant borra el portapapeles y oculta la página un momento;
+  - sin menú contextual ni arrastre sobre las gráficas;
+  - en *Promedios*, *Descargas* y *Usuarios*, el contenido se cubre mientras la ventana no tiene el foco (por ejemplo, al abrir la herramienta de recortes).
+
+  La protección real de los datos es que las descargas (CSV/TXT/PNG) exigen sesión **en el servidor**.
 
 ### 13.4 Comandos
 
@@ -637,3 +648,64 @@ davis iniciar
 ```
 
 Histórico migrado: `gunzip -c respaldos/fijos/historico_v23_migrado.db.gz > db/historico_v23_migrado.db`.
+
+---
+
+## 15. Monitor de recepción y CRC
+
+### Por qué hizo falta un parche en rtldavis
+
+rtldavis comprueba el CRC de cada trama y **descarta en silencio** las que fallan, así que el contador "CRC fail" de v2.3–v3.1 siempre marcaba 0. El parche de `deploy/rtldavis/` (GPL-3.0, como rtldavis) solo agrega una línea de log por cada trama descartada:
+
+```
+CRC ERROR 8005813339007F04 ok=0     ← ok=N: tramas válidas en el mismo bloque
+```
+
+```bash
+bash deploy/rtldavis/compilar_rtldavis.sh            # → ~/.local/bin/rtldavis-crc (sin sudo)
+# config.json:  "rtldavis_cmd": "/home/alternas/.local/bin/rtldavis-crc"
+davis reiniciar
+```
+
+La versión parchada se anuncia como `0.15+crc`. Con el rtldavis original todo sigue funcionando, solo que sin el desglose de CRC.
+
+### Qué se mide: contabilidad por ranura
+
+Con rtldavis sincronizado hay unas **4 tramas con CRC fallido por segundo** (medido: 1 855 en 6.4 min, con 150 válidas), casi todas **ruido**: el demodulador escucha de forma continua y a veces el ruido imita el inicio de una trama. Por eso dividir "válidas ÷ (válidas + CRC)" daría una efectividad falsa de ~9 %.
+
+La estación transmite con un periodo **exacto** de 2.5625 s (ID 1), medido con una dispersión de ~1 ms. Cada transmisión esperada tiene una **ranura** de tiempo, y el receptor clasifica así:
+
+| Ranura | Significado |
+|---|---|
+| **válida** | llegó y se decodificó |
+| **dañada** | no hubo trama válida, pero sí un CRC fallido a ± `tolerancia_ranura_seg` (5 ms) de la ranura: la transmisión llegó corrupta |
+| **no llegó** | nada en la ranura: señal débil, interferencia, dongle desconectado o resincronizando |
+
+**válidas + dañadas + no llegaron = transmisiones esperadas = 100 %.**
+
+Los CRC fallidos que no caen en una ranura perdida son **descartes correctos**: no costaron ningún dato.
+- **Ruido:** fuera de toda ranura.
+- **Copia:** en la ranura de una transmisión que sí llegó válida.
+- **Inválidas:** CRC correcto pero contenido imposible.
+- **Otro transmisor.**
+
+| Indicador | Fórmula | Meta |
+|---|---|---|
+| Efectividad de decodificación | válidas ÷ (válidas + dañadas) | 100 % |
+| Entrega (PDR) | válidas ÷ esperadas | lo más alto posible |
+| Cobertura | tiempo con datos ÷ periodo | 100 % |
+
+```bash
+davis crc          # últimas 24 h en la terminal
+davis crc 168      # última semana
+```
+
+Se guarda por minuto en la tabla `enlace` de `datos/db/eventos_davis.db`. Columnas: `validas`, `esperadas`, `danadas`, `sin_rastro`, `crc_fallos`, `crc_ruido`, `crc_con_copia`, `invalidas`, `otro_tx`, `errores_usb`, `reinicios`, `error_freq_hz`.
+
+**Cómo se eligió la tolerancia (medición del 3-nov-2026, 150 ranuras):**
+- Las tramas válidas caen a ≤ 2.2 ms de su ranura (desviación de 0.9 ms).
+- Los CRC fallidos se reparten **planos** alrededor de la ranura (~4.2 por segundo), sin pico en 0: con buena señal casi no hay tramas dañadas reales, solo ruido.
+- Con ±5 ms, la probabilidad de que una ranura perdida se marque "dañada" por puro ruido es de ~4 % (≈ 0.1 % de todas las transmisiones).
+
+Diagnóstico continuo: `estado.json → sdr.fase_crc_ms` es el histograma de los CRC fallidos según su distancia a la ranura, en bins de 1 ms en ±20 ms. Si apareciera un pico en 0 más ancho que ±5 ms, conviene subir `tolerancia_ranura_seg`.
+

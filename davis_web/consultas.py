@@ -284,3 +284,101 @@ def parse_fecha(txt: str, fin_de_dia: bool = False) -> float:
         except ValueError:
             continue
     raise ValueError(f"fecha inválida: {txt!r}")
+
+
+# ---------------------------------------------------------------- monitor de recepción (CRC)
+_SUMAS_ENLACE = ("validas", "esperadas", "danadas", "sin_rastro", "crc_fallos", "crc_ruido", "crc_con_copia",
+                 "perdidas", "invalidas", "otro_tx", "errores_usb", "reinicios")
+
+
+def _tiene_tabla(c: sqlite3.Connection, nombre: str) -> bool:
+    return c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (nombre,)).fetchone() is not None
+
+
+def enlace(desde: float, hasta: float, resolucion: Optional[int] = None) -> dict:
+    """Contabilidad de la recepción por intervalo.
+
+    Por RANURA de transmisión (la estación transmite con periodo exacto):
+        válidas + dañadas (llegó con CRC fallido) + sin rastro = esperadas → 100 %
+    Efectividad de decodificación = válidas ÷ (válidas + dañadas): de lo que llegó
+    al receptor, cuánto se decodificó. Los CRC fuera de ranura (ruido), las copias
+    dañadas de una transmisión que sí llegó, las inválidas y las de otro transmisor
+    son DESCARTES CORRECTOS: no cuestan datos.
+
+    Antes de la tabla `enlace` (receptor < 3.2) solo hay válidas/esperadas
+    (tabla `resumen`): esos intervalos no tienen desglose (null).
+    """
+    res = resolucion or resolucion_auto(hasta - desde, 600)
+    cubos: Dict[int, dict] = {}
+    seg_con_datos = 0.0
+    for ruta in _bases():
+        try:
+            c = _conectar(ruta)
+            for b, val, esp, seg in c.execute(
+                    "SELECT CAST(ts_unix / ? AS INTEGER), SUM(paquetes), SUM(paquetes_esperados), SUM(segundos) "
+                    "FROM resumen WHERE ts_unix >= ? AND ts_unix < ? GROUP BY 1", (res, desde, hasta)):
+                seg_con_datos += seg or 0
+                d = cubos.setdefault(b, {"validas": 0, "esperadas": 0})
+                d["validas"] += val or 0
+                d["esperadas"] += esp or 0
+            if _tiene_tabla(c, "enlace"):
+                sumas = ", ".join(f"SUM({k})" for k in _SUMAS_ENLACE)
+                for fila in c.execute(
+                        f"SELECT CAST(ts_unix / ? AS INTEGER), {sumas}, AVG(error_freq_hz), MIN(crc_disponible) "
+                        "FROM enlace WHERE ts_unix >= ? AND ts_unix < ? GROUP BY 1", (res, desde, hasta)):
+                    d = dict(zip(_SUMAS_ENLACE, (x or 0 for x in fila[1:1 + len(_SUMAS_ENLACE)])))
+                    d["error_freq_hz"] = _red(fila[-2], 0)
+                    d["detallado"] = bool(fila[-1])   # todo el intervalo con rtldavis parchado
+                    cubos[fila[0]] = d                # la tabla enlace manda sobre resumen en ese intervalo
+            c.close()
+        except sqlite3.Error:
+            continue
+
+    nombres = _SUMAS_ENLACE + ("error_freq_hz", "entrega_pct", "efectividad_pct")
+    t, series = [], {k: [] for k in nombres}
+    tot = {k: 0 for k in _SUMAS_ENLACE}
+    det = {k: 0 for k in _SUMAS_ENLACE}
+    crc_desde = None
+    for b in sorted(cubos):
+        d = cubos[b]
+        detallado = d.get("detallado", False)
+        t.append(b * res)
+        for k in _SUMAS_ENLACE:
+            v = d.get(k, 0)
+            series[k].append(v if (detallado or k in ("validas", "esperadas")) else None)
+            tot[k] += v or 0
+            if detallado:
+                det[k] += v or 0
+        if detallado and crc_desde is None:
+            crc_desde = b * res
+        series["error_freq_hz"].append(d.get("error_freq_hz"))
+        esp = d.get("esperadas") or 0
+        series["entrega_pct"].append(_red(min(100.0, 100.0 * d["validas"] / esp), 1) if esp else None)
+        llegaron = d["validas"] + d.get("danadas", 0)
+        series["efectividad_pct"].append(_red(100.0 * d["validas"] / llegaron, 2) if detallado and llegaron else None)
+
+    def pct(a, b):
+        return _red(100.0 * a / b, 2) if b else None
+
+    contabilidad = None
+    if det["esperadas"]:
+        e = det["esperadas"]
+        correctos = det["crc_ruido"] + det["crc_con_copia"] + det["invalidas"] + det["otro_tx"]
+        contabilidad = {
+            "esperadas": e, "validas": det["validas"], "danadas": det["danadas"], "sin_rastro": det["sin_rastro"],
+            "pct": {"validas": pct(det["validas"], e), "danadas": pct(det["danadas"], e),
+                    "sin_rastro": pct(det["sin_rastro"], e)},
+            "efectividad_pct": pct(det["validas"], det["validas"] + det["danadas"]),
+            "entrega_pct": pct(det["validas"], e),
+            "descartes": {"crc_fallos": det["crc_fallos"], "crc_ruido": det["crc_ruido"],
+                          "crc_con_copia": det["crc_con_copia"], "crc_en_danadas":
+                          max(0, det["crc_fallos"] - det["crc_ruido"] - det["crc_con_copia"]),
+                          "invalidas": det["invalidas"], "otro_tx": det["otro_tx"], "correctos": correctos},
+        }
+    duracion = max(1.0, min(hasta, time.time()) - desde)
+    cobertura = min(100.0, 100.0 * seg_con_datos / duracion)
+    return {"desde": desde, "hasta": hasta, "resolucion": res, "t": t, "series": series,
+            "totales": dict(tot, entrega_pct=pct(min(tot["validas"], tot["esperadas"]), tot["esperadas"]),
+                            cobertura_pct=_red(cobertura, 1),
+                            horas_sin_datos=_red((duracion - min(duracion, seg_con_datos)) / 3600, 1)),
+            "contabilidad": contabilidad, "crc_desde": crc_desde}

@@ -175,6 +175,32 @@ class TestAPI(unittest.TestCase):
         self.assertEqual((st, d["resolucion"], len(d["t"])), (200, 300, 12))
         self.assertEqual(json.loads(self.pedir("/api/estado")[2])["conexion"], "fuera_de_linea")
 
+    def test_enlace_contabilidad_100(self):
+        """/api/enlace: válidas + dañadas + sin rastro = 100 % de lo esperado; sin parche CRC → None."""
+        from davis_monitor.basedatos import COLS_ENLACE, _SQL_ENLACE
+        c = abrir(config.RUTAS.db)
+        # por minuto: 22 válidas, 1 dañada cada 2 min, 1 sin rastro cada 3; 40 CRC de ruido, 1 copia
+        filas = [(T0 - i * 60, 60.0, 22, 22 + (i % 2) + (1 if i % 3 == 0 else 0), i % 2, 1 if i % 3 == 0 else 0,
+                  40 + 1 + (i % 2), 40, 1, 0, 1 if i == 5 else 0, 0, 0, 0, 2800.0, 1) for i in range(60)]
+        with c:
+            c.execute("DELETE FROM enlace")
+            c.executemany(_SQL_ENLACE, filas)
+        c.close()
+        self.assertEqual(len(COLS_ENLACE), len(filas[0]))
+        st, _, b = self.pedir(f"/api/enlace?desde={T0 - 3540}&hasta={T0 + 60}&res=600")
+        k = json.loads(b)["contabilidad"]
+        self.assertEqual(st, 200)
+        self.assertEqual((k["validas"], k["danadas"], k["sin_rastro"]), (1320, 30, 20))
+        self.assertEqual(k["esperadas"], 1370)
+        self.assertAlmostEqual(sum(k["pct"].values()), 100.0, delta=0.02)
+        self.assertAlmostEqual(k["efectividad_pct"], round(100 * 1320 / 1350, 2))
+        self.assertEqual((k["descartes"]["crc_ruido"], k["descartes"]["crc_en_danadas"], k["descartes"]["invalidas"]),
+                         (2400, 30, 1))
+        # periodo anterior a la tabla enlace: solo PDR, sin contabilidad de CRC
+        d = json.loads(self.pedir(f"/api/enlace?desde={T0 - 14000}&hasta={T0 - 7200}")[2])
+        self.assertIsNone(d["contabilidad"])
+        self.assertEqual(d["totales"]["entrega_pct"], 100.0)
+
     def test_api_inexistente_404_y_robots(self):
         self.assertEqual(self.pedir("/api/no-existe")[0], 404)
         st, _, b = self.pedir("/robots.txt")

@@ -1,0 +1,44 @@
+diff -ruN a/main.go b/main.go
+--- a/main.go	2026-11-03 22:04:37.964755378 -0600
++++ b/main.go	2026-11-03 22:04:37.968663695 -0600
+@@ -120,7 +120,7 @@
+ 
+ 
+ func init() {
+-    VERSION := "0.15"
++    VERSION := "0.15+crc"
+ var (
+     tr      int
+     mask    int
+diff -ruN a/protocol/protocol.go b/protocol/protocol.go
+--- a/protocol/protocol.go	2026-11-03 22:04:37.964804082 -0600
++++ b/protocol/protocol.go	2026-11-03 22:04:37.968724361 -0600
+@@ -201,6 +201,7 @@
+ // return a list of parsed messages.
+ func (p *Parser) Parse(pkts []dsp.Packet) (msgs []Message) {
+ 	seen := make(map[string]bool)
++	var crcFails [][]byte
+ 
+ 	for _, pkt := range pkts {
+ 		// Bit order over-the-air is reversed.
+@@ -216,6 +217,7 @@
+ 
+ 		// If the checksum fails, bail.
+ 		if p.Checksum(pkt.Data[2:]) != 0 {
++			crcFails = append(crcFails, append([]byte(nil), pkt.Data...))
+ 			continue
+ 		}
+ 		// Thanks to Steve Wormley for an improved calculation of freqError.
+@@ -252,6 +254,12 @@
+ 		p.freqerrTrChList[tr][ch][p.freqerrTrChPtr[tr][ch]] = freqerr
+ 		p.freqerrTrChPtr[tr][ch] = (p.freqerrTrChPtr[tr][ch] + 1) % p.maxTrChList
+ 	}
++	// davis-sdr v3: report every frame dropped by the CRC so the monitor can
++	// track link quality. ok=N is the number of valid frames in the same block
++	// (ok>0 means a good copy of the transmission was also received).
++	for _, d := range crcFails {
++		log.Printf("CRC ERROR %X ok=%d", d, len(msgs))
++	}
+ 	return
+ }
+ 

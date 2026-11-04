@@ -15,7 +15,7 @@
 | | [davis-sdr-greenhouse](https://github.com/Sibajx/davis-sdr-greenhouse) (original) | **davis-sdr-greenhouse-v3** (este) |
 |---|---|---|
 | Propósito | Artículo + reproducibilidad de sus resultados | Sistema en operación continua |
-| Software | `davis_monitor` v2.3 | `davis_monitor` v3.0 + `davis_web` 1.0 |
+| Software | `davis_monitor` v2.3 | `davis_monitor` v3.2 + `davis_web` 1.2 |
 | Datos | Campaña 29-ago → 4-sep-2026 | Se generan en `datos/` (no se suben a git) |
 | Estado | Congelado (referencia del paper) | Activo |
 
@@ -38,8 +38,9 @@ davis_v2/
 ├── davis_monitor/     receptor: lanza/vigila rtldavis, decodifica, guarda CSV + SQLite, alertas
 ├── davis_web/         dashboard web (servidor de la biblioteca estándar + ECharts local)
 ├── davis              lanzador: servicios + TUI (davis ayuda)
-├── tests/             55 pruebas (python3 -m unittest discover -s tests -t .)
-├── deploy/            servicios systemd, instaladores, túnel Cloudflare, regla udev
+├── tests/             64 pruebas (python3 -m unittest discover -s tests -t .)
+├── deploy/            servicios systemd, instaladores, túnel Cloudflare, regla udev,
+│                      rtldavis/ (parche GPL-3 que reporta los CRC)
 ├── docs/
 │   ├── GUIA_COMPLETA.md          comandos y funcionamiento de todo el sistema  ← empezar aquí
 │   ├── reporte_davis.md          análisis v2.3 → v3, errores y pruebas en hardware
@@ -56,9 +57,9 @@ davis_v2/
   - SQLite con escritura por lotes.
   - Alertas push (ntfy).
 - **Dashboard:**
-  - Secciones públicas *En vivo* (animado, se actualiza cada minuto) e *Histórico*; avisa y cambia a históricos cuando el sistema está fuera de línea.
+  - Secciones públicas *En vivo* (animado, se actualiza cada minuto), *Histórico* y *Recepción*, un monitor de CRC que dice qué pasó con cada transmisión de la estación (válida, dañada o no llegó; suma 100 %). Avisa y cambia a históricos cuando el sistema está fuera de línea.
   - Con sesión: *Promediado Davis*, con el método validado del paper (media retrospectiva de 30 min, mínimo 15 muestras) y una variante por integral temporal.
-  - Con sesión: *Consultor de datos*, con descarga en CSV, TXT y PNG por días u horas.
+  - Con sesión: *Descargas* en CSV, TXT y PNG por días u horas. El PNG de cualquier gráfica también exige sesión.
   - Administración de cuentas con bitácora de actividad.
 - **Sin dependencias externas:** solo Python ≥ 3.9 y su biblioteca estándar. matplotlib es opcional, solo para exportar PNG.
 

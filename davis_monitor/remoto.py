@@ -81,7 +81,10 @@ class NucleoRemoto:
             estado=("FUERA DE LÍNEA · " if edad > 60 else "") + str(s.get("estado", "--")),
             freq_mhz=s.get("freq_mhz"), canal=s.get("canal"), error_freq_hz=s.get("error_freq_hz"),
             paquetes=s.get("paquetes_validos", 0), descartes_crc=s.get("descartes_crc", 0),
-            descartes_id=s.get("descartes_id", 0), reinicios=s.get("reinicios", 0),
+            descartes_id=s.get("descartes_id", 0), crc_ruido=s.get("crc_ruido", 0),
+            crc_con_copia=s.get("crc_con_copia", 0), danadas=s.get("danadas", 0), sin_rastro=s.get("sin_rastro", 0),
+            perdidas=s.get("perdidas", 0), invalidas=s.get("invalidas", 0),
+            crc_disponible=bool(s.get("crc_disponible")), version_rtldavis=s.get("version_rtldavis", ""), reinicios=s.get("reinicios", 0),
             ultimo_reinicio=s.get("ultimo_reinicio", "Nunca"), ultima_sync_seg=s.get("ultima_sync_seg"),
             ultima_trama=f"(la trama cruda la tiene el servicio) · errores USB: {s.get('errores_usb', 0)}",
             estado_csv=(f"Conectado al servicio · estado de hace {edad:.0f} s · calidad "

@@ -298,6 +298,22 @@ def ep_serie(h, q):
     h.enviar(200, cuerpo, "application/json; charset=utf-8")
 
 
+def ep_enlace(h, q):
+    desde, hasta = _rango(q)
+    if hasta - desde > 400 * 86400:
+        raise ValueError("Rango máximo: 400 días")
+    res = int(q["res"]) if q.get("res") else None
+    desde, hasta = round(desde / 10) * 10, round(hasta / 10) * 10
+    clave = ("enlace", desde, hasta, res)
+    cuerpo = CACHE.obtener(clave)
+    if cuerpo is None:
+        with _Pesada():
+            cuerpo = json.dumps(consultas.enlace(desde, hasta, res), ensure_ascii=False,
+                                separators=(",", ":")).encode()
+        CACHE.guardar(clave, cuerpo)
+    h.enviar(200, cuerpo, "application/json; charset=utf-8")
+
+
 def ep_robots(h, q):
     h.enviar(200, b"User-agent: *\nDisallow: /api/\n", "text/plain; charset=utf-8", cache="public, max-age=86400")
 
@@ -449,6 +465,7 @@ RUTAS = {
     ("GET", r"/api/estado"): ep_estado,
     ("GET", r"/api/meta"): ep_meta,
     ("GET", r"/api/serie"): ep_serie,
+    ("GET", r"/api/enlace"): ep_enlace,
     ("GET", r"/api/sesion"): ep_sesion,
     ("POST", r"/api/login"): ep_login,
     ("POST", r"/api/logout"): ep_logout,
@@ -466,7 +483,7 @@ RUTAS = {
 }
 
 
-RUTAS_PESADAS = {"/api/serie", "/api/promediado/movil", "/api/promediado/archivo", "/api/exportar",
+RUTAS_PESADAS = {"/api/serie", "/api/enlace", "/api/promediado/movil", "/api/promediado/archivo", "/api/exportar",
                  "/api/vista-previa"}
 
 

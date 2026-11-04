@@ -36,13 +36,15 @@
   </div>
 </header>
 
-<nav class="pestanas" id="pestanas">
-  <a href="#vivo" data-tab="vivo">En vivo</a>
-  <a href="#historico" data-tab="historico">Histórico</a>
-  <a href="#promediado" data-tab="promediado" class="privada">Promediado Davis <i>🔒</i></a>
-  <a href="#consultor" data-tab="consultor" class="privada">Consultor de datos <i>🔒</i></a>
-  <a href="#usuarios" data-tab="usuarios" class="solo-admin oculto">Usuarios</a>
+<nav class="pestanas" id="pestanas" aria-label="Secciones">
+  <a href="#vivo" data-tab="vivo"><b aria-hidden="true">●</b>En vivo</a>
+  <a href="#historico" data-tab="historico"><b aria-hidden="true">◷</b>Histórico</a>
+  <a href="#recepcion" data-tab="recepcion"><b aria-hidden="true">📡</b>Recepción</a>
+  <a href="#promediado" data-tab="promediado" class="privada"><b aria-hidden="true">∑</b>Promedios Davis <i>🔒</i></a>
+  <a href="#consultor" data-tab="consultor" class="privada"><b aria-hidden="true">⬇</b>Descargas <i>🔒</i></a>
+  <a href="#usuarios" data-tab="usuarios" class="solo-admin oculto"><b aria-hidden="true">👥</b>Usuarios</a>
 </nav>
+<p class="ayuda-tab" id="ayuda-tab"></p>
 
 <div class="aviso oculto" id="aviso-offline">
   <span>⚠</span>
@@ -53,6 +55,7 @@
 <main>
   <!-- ======================= EN VIVO ======================= -->
   <section id="tab-vivo" class="tab">
+    <div class="linea-estado" id="vivo-estado"></div>
     <div class="tarjetas" id="tarjetas"></div>
     <div class="fila-titulo">
       <h2>Tendencias <small id="vivo-rango-txt"></small></h2>
@@ -76,16 +79,59 @@
           <button data-p="hoy">Hoy</button><button data-p="ayer">Ayer</button>
           <button data-p="7">7 días</button><button data-p="30">30 días</button><button data-p="todo">Todo</button>
         </div></div>
-      <button class="btn" id="h-consultar">Consultar</button>
+      <button class="btn btn-sec" id="h-consultar" title="Volver a consultar con las fechas elegidas">↻ Actualizar</button>
     </div>
-    <div class="chips" id="h-vars"></div>
+    <details class="panel selector-vars" open>
+      <summary>Variables a graficar <small id="h-vars-n"></small></summary>
+      <div class="grupos-vars" id="h-vars"></div>
+    </details>
     <div class="estadisticas" id="h-stats"></div>
     <div class="rejilla-graficas una" id="graficas-historico"></div>
   </section>
 
+  <!-- ======================= RECEPCIÓN ======================= -->
+  <section id="tab-recepcion" class="tab oculto">
+    <div class="fila-titulo primera">
+      <h2>Monitor de recepción y CRC <small id="r-rango-txt"></small></h2>
+      <div class="segmentado" id="r-rango">
+        <button data-h="6">6 h</button><button data-h="24" class="activo">24 h</button>
+        <button data-h="168">7 días</button><button data-h="720">30 días</button>
+      </div>
+    </div>
+    <div class="tarjetas compactas" id="r-tarjetas"></div>
+    <div class="panel">
+      <div class="fila-titulo"><h3>¿Qué pasó con cada transmisión de la estación? <small>(siempre suma 100 %)</small></h3></div>
+      <div class="barra-100" id="r-barra"></div>
+      <div class="leyenda-100" id="r-leyenda"></div>
+      <p class="nota" id="r-nota"></p>
+    </div>
+    <div class="rejilla-graficas" id="graficas-recepcion"></div>
+    <details class="panel explicacion">
+      <summary><b>¿Cómo se lee esto?</b></summary>
+      <ul>
+        <li>La estación transmite cada <b>2.5625 s</b> exactos, así que el receptor sabe cuándo debe llegar cada transmisión (su <b>ranura</b>). Cada ranura termina en una sola de tres categorías, y las tres suman el 100 %:
+          <b>válida</b> (decodificada bien), <b>dañada</b> (llegó una trama en su ranura pero con CRC fallido) o <b>no llegó</b> (nada en la ranura: señal débil, interferencia, dongle desconectado o resincronizando).</li>
+        <li><b>Efectividad de decodificación</b> = válidas ÷ (válidas + dañadas): de lo que llegó al receptor, cuánto se decodificó. La meta es 100 %.</li>
+        <li>El demodulador también encuentra "tramas" en el <b>ruido</b> (patrones que imitan el inicio de una trama). Fallan el CRC y caen fuera de toda ranura: son <b>descartes correctos</b>, igual que las copias dañadas de una transmisión que sí llegó válida. No cuestan ningún dato.</li>
+        <li><b>Entrega (PDR)</b> = válidas ÷ esperadas. <b>Cobertura</b> = parte del periodo con el receptor guardando datos.</li>
+      </ul>
+    </details>
+  </section>
+
   <!-- ======================= PROMEDIADO ======================= -->
   <section id="tab-promediado" class="tab oculto">
-    <div class="bloqueo oculto"><p>🔒 Inicia sesión para ver el promediado tipo consola Davis.</p><button class="btn abrir-login">Iniciar sesión</button></div>
+    <div class="bloqueo oculto">
+      <div class="bloqueo-caja">
+        <span class="candado">🔒</span>
+        <h2>Promedios tipo consola Davis</h2>
+        <p>Para cuentas del equipo. Aquí se calcula, para cualquier periodo:</p>
+        <ul><li>El registro de archivo de 5 a 120 min, como la consola Davis o el WiFiLogger.</li>
+          <li>El método validado del artículo (media de 30 min) y el método por integral temporal.</li>
+          <li>La tabla de registros, con descarga en CSV.</li></ul>
+        <button class="btn abrir-login">Iniciar sesión</button>
+        <p class="nota">¿No tienes cuenta? Pídela al administrador del sistema.</p>
+      </div>
+    </div>
     <div class="contenido-privado">
       <div class="panel explicacion">
         <b>Método Davis (registro de archivo).</b> Cada valor es el promedio <i>retrospectivo</i> de la ventana elegida y termina exactamente en su marca de tiempo, igual que la consola Davis/WiFiLogger. Es el método validado por el equipo (media móvil de 30 min, mínimo 15 muestras). El método <i>integral</i> pondera por tiempo las tramas crudas (∫x·dt / ∫dt).
@@ -109,7 +155,17 @@
 
   <!-- ======================= CONSULTOR ======================= -->
   <section id="tab-consultor" class="tab oculto">
-    <div class="bloqueo oculto"><p>🔒 Inicia sesión para consultar y descargar datos.</p><button class="btn abrir-login">Iniciar sesión</button></div>
+    <div class="bloqueo oculto">
+      <div class="bloqueo-caja">
+        <span class="candado">🔒</span>
+        <h2>Descargas de datos</h2>
+        <p>Para cuentas del equipo. Elige los días y horas y descarga:</p>
+        <ul><li>CSV o TXT por minuto, promediado Davis o tramas crudas.</li>
+          <li>Gráficas en PNG (también desde el botón PNG de cada gráfica).</li></ul>
+        <button class="btn abrir-login">Iniciar sesión</button>
+        <p class="nota">¿No tienes cuenta? Pídela al administrador del sistema.</p>
+      </div>
+    </div>
     <div class="contenido-privado">
       <div class="panel pasos">
         <div class="paso"><span class="n">1</span><div class="campo"><label>Fuente de datos</label>
@@ -137,7 +193,7 @@
       <div class="botonera">
         <button class="btn btn-sec" id="c-previa">Vista previa</button>
         <button class="btn" id="c-descargar">⬇ Descargar</button>
-        <button class="btn btn-sec" id="c-png-pantalla">Guardar gráfica de la vista previa</button>
+        <button class="btn btn-sec" id="c-png-pantalla">PNG de las gráficas de la vista previa</button>
       </div>
       <div class="rejilla-graficas una" id="graficas-consultor"></div>
       <div class="panel oculto" id="c-panel-tabla">
@@ -197,10 +253,12 @@
 <div class="modal oculto" id="modal-grafica" role="dialog" aria-modal="true">
   <div class="caja grande">
     <div class="fila-titulo"><h3 id="mg-titulo"></h3>
-      <div><button class="btn btn-sec" id="mg-png">PNG</button> <button class="btn btn-sec cerrar-modal">Cerrar</button></div></div>
+      <div><button class="btn btn-sec solo-sesion" id="mg-png">PNG</button> <button class="btn btn-sec cerrar-modal">Cerrar</button></div></div>
     <div class="grafica-grande" id="mg-grafica"></div>
   </div>
 </div>
 <div class="toasts" id="toasts"></div>
+<div class="marca-agua" id="marca-agua" aria-hidden="true"></div>
+<div class="protector oculto" id="protector" aria-hidden="true"><div><b>Contenido protegido</b><span>Vuelve a esta ventana para seguir viendo los datos.</span></div></div>
 </body>
 </html>

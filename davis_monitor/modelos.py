@@ -57,8 +57,19 @@ class EstadoSDR:
     canal: Optional[int] = None
     error_freq_hz: Optional[int] = None
     paquetes: int = 0
-    descartes_crc: int = 0
+    # Contabilidad por RANURA (la estación transmite con periodo exacto):
+    #   válidas + dañadas + sin_rastro = transmisiones esperadas (100 %)
+    # y cada CRC fallido es: con_copia (ranura que sí llegó) | en ranura perdida (→ dañada) | ruido.
+    descartes_crc: int = 0             # todas las tramas con CRC inválido
+    crc_ruido: int = 0                 # fuera de toda ranura: falsas detecciones del demodulador (descarte correcto)
+    crc_con_copia: int = 0             # en la ranura de una transmisión que SÍ llegó válida
+    danadas: int = 0                   # ranuras sin trama válida pero con CRC fallido: llegó corrupta
+    sin_rastro: int = 0                # ranuras sin nada (señal débil, interferencia, resincronización)
+    perdidas: int = 0                  # "packet missed" que reporta rtldavis (diagnóstico de saltos)
+    invalidas: int = 0                 # CRC correcto pero contenido imposible
     descartes_id: int = 0
+    crc_disponible: bool = False       # rtldavis con el parche que reporta los CRC
+    version_rtldavis: str = ""
     lineas_otras: int = 0
     reinicios: int = 0
     ultimo_reinicio: str = "Nunca"

@@ -170,19 +170,28 @@ def decodificar(datos: bytes, cubeta_mm: float = 0.2) -> Optional[Lectura]:
 #   12:44:47.882901 Init channels: wait max 135 seconds for a message of each transmitter
 #   12:45:54.125069 TRANSMITTER 0 SEEN
 REGEX_PAQUETE = re.compile(r'^\d{2}:\d{2}:\d{2}\.\d+\s+([0-9A-Fa-f]{16})\b')
+REGEX_CRC = re.compile(r'CRC ERROR ([0-9A-Fa-f]+) ok=(\d+)')   # solo rtldavis con el parche de davis-sdr
 REGEX_HOP = re.compile(r'Hop: \{ChannelIdx:(\d+) ChannelFreq:(\d+) FreqError:(-?\d+)')
 
 
 def clasificar_linea(linea: str):
     """Devuelve (clase, datos):
        ('paquete', bytes) | ('hop', (canal, freq_hz, error_hz)) |
-       ('init', None) | ('sync', None) | ('usb_error', linea) | ('otro', linea)"""
+       ('init', None) | ('sync', None) | ('usb_error', linea) |
+       ('crc', bool hubo_copia_valida) | ('perdida', None) | ('version', str) | ('otro', linea)"""
     m = REGEX_PAQUETE.match(linea)
     if m:
         return "paquete", bytes.fromhex(m.group(1))
     m = REGEX_HOP.search(linea)
     if m:
         return "hop", (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    m = REGEX_CRC.search(linea)
+    if m:
+        return "crc", int(m.group(2)) > 0
+    if "packet missed" in linea:
+        return "perdida", None
+    if "rtldavis.go VERSION=" in linea:
+        return "version", linea.split("VERSION=", 1)[1].strip()
     if "Init channels" in linea:
         return "init", None
     if "SEEN" in linea and "TRANSMITTER" in linea:

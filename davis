@@ -50,6 +50,7 @@ ${c_b}davis${c_n} — estación Davis Vantage Pro 2 (receptor + dashboard)
   davis logs            log del receptor en vivo (Ctrl+C para salir)
   davis visor           visor compacto de solo lectura
   davis calidad [días]  eficiencia de recepción y huecos (por defecto 1 día)
+  davis crc [horas]     monitor de CRC: qué pasó con cada transmisión (por defecto 24 h)
   davis respaldo        respalda ahora · davis respaldo listar · davis respaldo verificar
   davis web             abre el dashboard en el navegador
   davis tui-directa     TUI usando el dongle directamente (detiene el servicio y lo reanuda al salir)
@@ -88,6 +89,7 @@ PY
   logs)      exec journalctl -u davis-monitor -f -n 30 ;;
   visor)     exec python3 -m davis_monitor --visor ;;
   calidad)   exec python3 -m davis_monitor.basedatos calidad --dias "${2:-1}" ;;
+  crc)       exec python3 -m davis_web.crc "${2:-24}" ;;
   respaldo)
     case "${2:-}" in
       listar)    exec python3 -m davis_monitor.respaldo --listar ;;

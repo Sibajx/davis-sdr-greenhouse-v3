@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.2.0 — 2026-11-03 · davis_web 1.2.0
+
+### Agregado
+- **Monitor de recepción y CRC** (pestaña *Recepción*, `davis crc`, tabla `enlace`):
+  - Contabilidad **por ranura de transmisión**. La estación transmite cada 2.5625 s exactos, así que cada transmisión esperada es *válida*, *dañada* (hubo una trama con CRC fallido en su ranura) o *no llegó*. Las tres suman el 100 %.
+  - Efectividad de decodificación = válidas ÷ (válidas + dañadas).
+  - Los CRC fallidos fuera de ranura (ruido que imita una trama) y las copias dañadas de una transmisión que sí llegó válida se cuentan como *descartes correctos*.
+  - También se registran la cobertura del periodo, los errores USB, los reinicios y el desvío de frecuencia por minuto.
+- Parche para rtldavis (`deploy/rtldavis/`, GPL-3.0): reporta cada trama que descarta por CRC (`CRC ERROR <hex> ok=N`). Sin el parche, rtldavis las descarta en silencio y el contador de CRC de v2.3/v3.1 siempre marcaba 0.
+
+### Mejorado (dashboard)
+- Navegación más clara: pestañas con icono, una línea de ayuda por sección y pestañas privadas que explican qué contienen.
+- Tarjetas "en vivo" sin huecos (brújula integrada), "toca para ampliar", hace cuánto llegó la última trama y explicación de VPD y UV.
+- Histórico: variables agrupadas por tema y consulta automática al cambiar las fechas.
+- Móvil: las pestañas ya no se cortan y las leyendas no se enciman con las gráficas.
+
+### Seguridad / privacidad
+- **PNG solo con sesión.** La imagen lleva al pie quién la descargó y cuándo.
+- Medidas disuasorias contra capturas: marca de agua (con el usuario si hay sesión), impresión deshabilitada, se borra el portapapeles con ImprPant, sin menú contextual sobre las gráficas, y las secciones privadas se ocultan cuando la ventana pierde el foco. Un sitio web **no puede** impedir una captura del sistema operativo o una foto con otro dispositivo.
+
 ## 3.1.0 — 2026-11-03
 
 ### Agregado

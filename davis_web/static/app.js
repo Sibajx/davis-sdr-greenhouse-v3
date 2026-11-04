@@ -68,11 +68,12 @@ function opcionBase({ ejes = [{}], zoom = false, leyenda = true } = {}) {
     animationDuration: 1400, animationEasing: "cubicOut", animationDurationUpdate: 700,
     textStyle: { fontFamily: "system-ui, sans-serif" },
     grid: { left: 52, right: ejes.length > 1 ? 56 : 18, top: leyenda ? 34 : 14, bottom: zoom ? 64 : 28 },
-    legend: leyenda ? { top: 0, textStyle: { color: tx }, icon: "roundRect", itemWidth: 14, itemHeight: 8 } : undefined,
+    legend: leyenda ? { top: 0, type: innerWidth < 720 ? "scroll" : "plain", textStyle: { color: tx }, icon: "roundRect", itemWidth: 14, itemHeight: 8,
+      pageTextStyle: { color: tx }, pageIconColor: tx } : undefined,
     tooltip: { trigger: "axis", backgroundColor: css("--panel-solido"), borderColor: linea, textStyle: { color: css("--texto") },
       axisPointer: { type: "line", lineStyle: { color: css("--tenue") } } },
     xAxis: { type: "time", axisLine: { lineStyle: { color: linea } }, axisLabel: { color: tx, hideOverlap: true }, splitLine: { show: false } },
-    yAxis: ejes.map((e, i) => ({ type: "value", name: e.nombre, nameTextStyle: { color: tx }, scale: e.max === undefined, max: e.max, min: e.min,
+    yAxis: ejes.map((e, i) => ({ type: "value", name: innerWidth < 720 ? "" : e.nombre, nameTextStyle: { color: tx }, scale: e.max === undefined, max: e.max, min: e.min,
       axisLabel: { color: tx }, splitLine: { show: i === 0, lineStyle: { color: linea, type: "dashed" } } })),
     dataZoom: zoom ? [{ type: "inside" }, { type: "slider", height: 22, bottom: 8, borderColor: linea, textStyle: { color: tx } }] : [{ type: "inside" }],
   };
@@ -108,8 +109,8 @@ function crearGrafica(cont, titulo, idGrafica, opcion, alAmpliar) {
   const caja = el("div", { class: "grafica" },
     el("header", {}, el("h3", {}, titulo), el("div", { class: "herr" },
       alAmpliar ? el("button", { onclick: alAmpliar, title: "Ampliar" }, "⤢") : null,
-      el("button", { title: "Descargar PNG", onclick: () => descargarPNG(idGrafica, titulo) }, "PNG"))),
-    el("div", { class: "lienzo" }));
+      el("button", { class: "solo-sesion", title: "Descargar PNG (solo con sesión)", onclick: () => descargarPNG(idGrafica, titulo) }, "PNG"))),
+    el("div", { class: "lienzo", oncontextmenu: (e) => e.preventDefault() }));
   caja.style.animationDelay = `${cont.children.length * 70}ms`;
   cont.append(caja);
   const inst = echarts.init($(".lienzo", caja), null, { renderer: "canvas" });
@@ -118,12 +119,23 @@ function crearGrafica(cont, titulo, idGrafica, opcion, alAmpliar) {
   return inst;
 }
 
+// Solo con sesión. La imagen lleva al pie quién la descargó y cuándo (trazabilidad).
 function descargarPNG(id, nombre) {
+  if (!S.usuario) { toast("Inicia sesión para descargar gráficas", true); abrirModal("#modal-login"); return; }
   const g = S.graficas.get(id);
   if (!g) return;
-  const a = el("a", { href: g.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: css("--panel-solido") }),
-    download: `${(nombre || id).replace(/[^\wáéíóúñ-]+/gi, "_")}.png` });
-  a.click();
+  const img = new Image();
+  img.onload = () => {
+    const pie = 44, cv = el("canvas", { width: img.width, height: img.height + pie }), cx = cv.getContext("2d");
+    cx.fillStyle = css("--panel-solido"); cx.fillRect(0, 0, cv.width, cv.height);
+    cx.drawImage(img, 0, 0);
+    cx.fillStyle = css("--texto2"); cx.font = "22px system-ui, sans-serif"; cx.textBaseline = "middle";
+    cx.fillText(`${nombre || id} · ${S.meta?.titulo || ""}`, 24, img.height + pie / 2);
+    const firma = `${location.host} · descargado por ${S.usuario.usuario} · ${new Date().toLocaleString("es-MX")}`;
+    cx.textAlign = "right"; cx.fillText(firma, cv.width - 24, img.height + pie / 2);
+    el("a", { href: cv.toDataURL("image/png"), download: `${(nombre || id).replace(/[^\wáéíóúñ-]+/gi, "_")}.png` }).click();
+  };
+  img.src = g.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: css("--panel-solido") });
 }
 
 function limpiarGraficas(prefijo) {
@@ -186,15 +198,16 @@ function definicionTarjetas(e, sdr) {
   const t = [
     { k: "temp", et: "Temperatura", v: e.temp_c, u: "°C", d: 1, det: e.punto_rocio_c !== null ? `Rocío ${fmt(e.punto_rocio_c)} °C` : "" },
     { k: "humedad", et: "Humedad relativa", v: e.humedad_pct, u: "%", d: 0 },
-    { k: "vpd", et: "VPD", v: e.vpd_kpa, u: "kPa", d: 2, banda: vpdB },
+    { k: "vpd", et: "VPD · déficit de presión de vapor", v: e.vpd_kpa, u: "kPa", d: 2, banda: vpdB,
+      ayuda: "Qué tan seco está el aire para la planta (kPa). < 0.4 muy húmedo (riesgo de hongos) · 0.8–1.2 óptimo · > 1.6 estrés. En secado: más alto = el aire seca más." },
     { k: "viento", et: "Viento", v: e.viento_kmh, u: "km/h", d: 1, brujula: true, det: `${e.viento_cardinal || "--"} · ${fmt(e.viento_dir_grados, 0)}°` },
     { k: "rafaga", et: "Ráfaga", v: e.rafaga_kmh, u: "km/h", d: 1 },
     { k: "solar", et: "Radiación solar", v: e.solar_w_m2, u: "W/m²", d: 0 },
-    { k: "uv", et: "Índice UV", v: e.uv, u: "", d: 1, banda: uvB },
+    { k: "uv", et: "Índice UV", v: e.uv, u: "", d: 1, banda: uvB, ayuda: "Escala OMS: 0–2 bajo · 3–5 moderado · 6–7 alto · 8–10 muy alto · 11+ extremo." },
   ];
   if (lluvia) t.push({ k: "lluvia", et: "Lluvia hoy", v: e.lluvia_hoy_mm, u: "mm", d: 1, det: `Tasa ${fmt(e.lluvia_tasa_mm_h)} mm/h` });
-  t.push({ k: "calidad", et: "Enlace SDR", v: sdr.calidad_ultima_ventana_pct, u: "%", d: 0,
-    det: `${sdr.estado || "--"} · ${sdr.paquetes_validos ?? 0} tramas · batería TX ${e.bateria_tx || "--"}` });
+  t.push({ k: "calidad", et: "Recepción (último minuto)", v: sdr.calidad_ultima_ventana_pct, u: "%", d: 0, ir: "recepcion",
+    det: `${sdr.estado || "--"} · batería TX ${e.bateria_tx || "--"}` });
   return t;
 }
 
@@ -203,6 +216,11 @@ function pintarTarjetas() {
   const d = S.estado?.datos;
   if (!d) { cont.replaceChildren(el("div", { class: "panel vacio" }, S.estado?.motivo || "Sin datos del receptor")); return; }
   const e = d.estacion, sdr = d.sdr, edades = e.edad_seg || {};
+  const sin = sdr.segundos_sin_paquetes;
+  $("#vivo-estado").replaceChildren(
+    el("span", {}, "Última trama: ", el("b", {}, sin === null || sin === undefined ? "--" : `hace ${haceTxt(sin)}`)),
+    el("span", {}, "Tarjetas: cada 5 s · gráficas: cada minuto"),
+    el("span", {}, "Toca una tarjeta para ampliar su gráfica"));
   const defs = definicionTarjetas(e, sdr);
   const nuevo = cont.dataset.n !== String(defs.length);
   if (nuevo) { cont.replaceChildren(); cont.dataset.n = defs.length; limpiarGraficas("brujula"); limpiarGraficas("mini"); }
@@ -210,11 +228,12 @@ function pintarTarjetas() {
     let c = cont.children[i];
     const colorVar = t.banda ? t.banda[2] : COLORES[t.k] || "--c8";
     if (!c) {
-      c = el("div", { class: "tarjeta" + (t.brujula ? " brujula" : ""), style: `animation-delay:${i * 45}ms`, "data-k": t.k },
+      c = el("div", { class: "tarjeta" + (t.brujula ? " brujula" : ""), style: `animation-delay:${i * 45}ms`, "data-k": t.k, title: t.ayuda },
         el("div", { class: "et" }, el("span", {}, t.et), el("span", { class: "tend" })),
         el("div", { class: "valor" }, el("span", { class: "num" }, "--"), el("small", {}, t.u)),
-        el("div", { class: "det" }), t.brujula ? el("div", { class: "g" }) : el("div", { class: "mini" }));
-      c.addEventListener("click", () => abrirVariable(t.k));
+        el("div", { class: "det" }), t.brujula ? el("div", { class: "g" }) : el("div", { class: "mini" }),
+        el("span", { class: "ir" }, t.ir ? "ver recepción ›" : "ver gráfica ›"));
+      c.addEventListener("click", () => t.ir ? (location.hash = "#" + t.ir) : abrirVariable(t.k));
       cont.append(c);
     }
     c.style.setProperty("--color", css(colorVar));
@@ -227,7 +246,8 @@ function pintarTarjetas() {
       S.prevValores[t.k] = t.v;
     }
     const det = $(".det", c);
-    det.replaceChildren(t.banda ? el("span", { class: "etiqueta-banda" }, t.banda[1]) : "", t.banda && t.det ? " " : "", t.det || "");
+    det.replaceChildren(t.banda ? el("span", { class: "etiqueta-banda" }, t.banda[1]) : "", t.banda && t.det ? " " : "", t.det || "",
+      t.ayuda ? el("button", { class: "info", "aria-label": "¿Qué es?", onclick: (ev) => { ev.stopPropagation(); toast(t.ayuda); } }, "?") : "");
     const clave = { temp: "temp", humedad: "humedad", vpd: "humedad", viento: "viento_vel", rafaga: "rafaga", solar: "solar", uv: "uv" }[t.k];
     // OJO: toggle(clase, undefined) ALTERNA la clase en cada llamada; siempre pasar un booleano
     c.classList.toggle("vieja", S.estado.conexion === "fuera_de_linea" || Boolean(clave && edades[clave] > 600));
@@ -314,7 +334,7 @@ async function cargarVivo(redibujar = true) {
   try {
     const s = await api(`/api/serie?desde=${desde}&hasta=${hasta + 60}&vars=${vars.join(",")}&res=${S.vivoHoras > 24 ? 300 : 60}`);
     S.vivoSerie = s;
-    if (redibujar) graficasDeSerie($("#graficas-vivo"), "vivo", s, { grupos: GRUPOS.filter((g) => g.id !== "direccion") });
+    if (redibujar) graficasDeSerie($("#graficas-vivo"), "vivo", s, { grupos: GRUPOS.filter((g) => g.id !== "direccion" && g.id !== "calidad") });
     else actualizarSeriesVivo(s);
     pintarMinis();
   } catch (err) { toast("No se pudieron cargar las tendencias: " + err.message, true); }
@@ -346,13 +366,31 @@ function abrirVariable(k) {
 // ====================================================================== HISTÓRICO
 const H = { vars: new Set(["temp", "rocio", "humedad", "vpd", "viento", "rafaga", "solar", "uv"]) };
 
+const CATEGORIAS = [["Temperatura", ["temp", "temp_min", "temp_max", "rocio"]], ["Humedad", ["humedad", "vpd"]],
+  ["Viento", ["viento", "viento_max", "rafaga", "direccion"]], ["Sol", ["solar", "solar_max", "uv", "uv_max"]],
+  ["Lluvia", ["lluvia", "lluvia_tasa"]], ["Recepción", ["calidad", "paquetes"]]];
+
 function chipsVariables(cont, conjunto, alCambiar) {
   cont.replaceChildren();
-  for (const [k, v] of Object.entries(S.meta.variables)) {
-    const c = el("span", { class: "chip" + (conjunto.has(k) ? " on" : ""), style: `--color:${color(k)}` }, v.etiqueta);
-    c.addEventListener("click", () => { conjunto.has(k) ? conjunto.delete(k) : conjunto.add(k); c.classList.toggle("on"); alCambiar && alCambiar(); });
-    cont.append(c);
+  const vars = S.meta.variables, usadas = new Set();
+  const contar = () => { const n = cont.parentElement.querySelector("summary small"); if (n) n.textContent = `· ${conjunto.size} elegidas`; };
+  const chip = (k) => {
+    const c = el("span", { class: "chip" + (conjunto.has(k) ? " on" : ""), style: `--color:${color(k)}`, role: "checkbox",
+      tabindex: 0, "aria-checked": String(conjunto.has(k)) }, vars[k].etiqueta);
+    const alternar = () => { conjunto.has(k) ? conjunto.delete(k) : conjunto.add(k); c.classList.toggle("on", conjunto.has(k));
+      c.setAttribute("aria-checked", String(conjunto.has(k))); contar(); alCambiar && alCambiar(); };
+    c.addEventListener("click", alternar);
+    c.addEventListener("keydown", (e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); alternar(); } });
+    return c;
+  };
+  for (const [nombre, ks] of CATEGORIAS) {
+    const presentes = ks.filter((k) => vars[k]);
+    presentes.forEach((k) => usadas.add(k));
+    if (presentes.length) cont.append(el("div", { class: "grupo-vars" }, el("span", { class: "nombre-grupo" }, nombre), presentes.map(chip)));
   }
+  const resto = Object.keys(vars).filter((k) => !usadas.has(k));
+  if (resto.length) cont.append(el("div", { class: "grupo-vars" }, el("span", { class: "nombre-grupo" }, "Otras"), resto.map(chip)));
+  contar();
 }
 
 function presetRango(p, ini, fin) {
@@ -389,6 +427,96 @@ function pintarEstadisticas(cont, s) {
       : `mín ${fmt(Math.min(...xs), v.decimales)} · prom ${fmt(prom, v.decimales)} · máx ${fmt(Math.max(...xs), v.decimales)}`;
     cont.append(el("div", { class: "estadistica", style: `border-left:3px solid ${color(k)}` }, el("b", {}, `${v.etiqueta} (${v.unidad})`), el("span", {}, txt)));
   }
+}
+
+// ====================================================================== RECEPCIÓN / CRC
+const R = { horas: 24 };
+const COL_ENLACE = { validas: "--ok", danadas: "--error", sin_rastro: "--c8" };
+const ETQ_ENLACE = { validas: "Llegaron válidas", danadas: "Llegaron dañadas (CRC)", sin_rastro: "No llegaron" };
+const nivel = (v, bien, regular) => v === null || v === undefined ? "" : v >= bien ? "estado-ok" : v >= regular ? "estado-medio" : "estado-mal";
+const miles = (n) => n === null || n === undefined ? "--" : Number(n).toLocaleString("es-MX");
+
+async function cargarRecepcion() {
+  const hasta = Date.now() / 1000, desde = hasta - R.horas * 3600;
+  $("#r-rango-txt").textContent = `· últimas ${R.horas >= 48 ? R.horas / 24 + " días" : R.horas + " h"}`;
+  try {
+    const d = await api(`/api/enlace?desde=${desde}&hasta=${hasta}`);
+    R.datos = d;
+    pintarTarjetasRecepcion(d);
+    pintarContabilidad(d);
+    graficasRecepcion(d);
+  } catch (err) { toast("No se pudo cargar la recepción: " + err.message, true); }
+}
+
+function pintarTarjetasRecepcion(d) {
+  const c = d.contabilidad, tot = d.totales, sdr = S.estado?.datos?.sdr || {};
+  const defs = [
+    { et: "Efectividad de decodificación", v: c ? fmt(c.efectividad_pct, 2) : "--", u: "%", cls: nivel(c?.efectividad_pct, 99.5, 97),
+      det: c ? `de lo que llegó: ${miles(c.validas)} válidas, ${miles(c.danadas)} dañadas por CRC` : "requiere rtldavis con parche CRC",
+      ayuda: "Válidas ÷ (válidas + dañadas). De las transmisiones que sí llegaron al receptor, cuántas se decodificaron bien. Meta: 100 %." },
+    { et: "Entrega (PDR)", v: fmt(c ? c.entrega_pct : tot.entrega_pct, 1), u: "%", cls: nivel(c ? c.entrega_pct : tot.entrega_pct, 95, 80),
+      det: c ? `${miles(c.validas)} de ${miles(c.esperadas)} transmisiones esperadas` : `${miles(tot.validas)} de ${miles(tot.esperadas)} esperadas`,
+      ayuda: "Válidas ÷ esperadas. La estación transmite cada 2.5625 s, así que se sabe cuántas debían llegar mientras el receptor estaba activo." },
+    { et: "Descartes correctos", v: c ? miles(c.descartes.correctos) : "--", u: "", cls: "estado-ok",
+      det: c ? `${miles(c.descartes.crc_ruido)} ruido · ${miles(c.descartes.crc_con_copia)} copias · ${miles(c.descartes.invalidas)} inválidas · ${miles(c.descartes.otro_tx)} otro TX` : "--",
+      ayuda: "Tramas que se descartaron con razón y no costaron ningún dato: ruido que imitó una trama (CRC fuera de toda ranura), copias dañadas de una transmisión que sí llegó, contenido imposible u otro transmisor." },
+    { et: "Cobertura del periodo", v: fmt(tot.cobertura_pct, 1), u: "%", cls: nivel(tot.cobertura_pct, 98, 85),
+      det: tot.horas_sin_datos > 0.05 ? `${fmt(tot.horas_sin_datos, 1)} h sin datos (receptor caído, USB o resincronizando)` : "sin huecos",
+      ayuda: "Parte del periodo en que el receptor estuvo guardando datos. Los huecos son tiempo con el receptor caído, el dongle desconectado o resincronizando." },
+    { et: "Errores USB · reinicios", v: `${miles(tot.errores_usb)} · ${miles(tot.reinicios)}`, u: "", cls: tot.errores_usb || tot.reinicios ? "estado-mal" : "estado-ok",
+      det: "desconexiones del dongle · reinicios de rtldavis" },
+    { et: "Ahora", v: sdr.estado || "--", u: "", cls: sdr.estado === "Recibiendo" ? "estado-ok" : "estado-medio",
+      det: `${sdr.freq_mhz ? fmt(sdr.freq_mhz, 3) + " MHz" : "--"} · desvío ${sdr.error_freq_hz ?? "--"} Hz · rtldavis ${sdr.version_rtldavis || "?"}` },
+  ];
+  $("#r-tarjetas").replaceChildren(...defs.map((t, i) => el("div", { class: "tarjeta", style: `animation-delay:${i * 45}ms`, title: t.ayuda },
+    el("div", { class: "et" }, el("span", {}, t.et)),
+    el("div", { class: "valor " + t.cls }, el("span", { class: "num" }, String(t.v)), el("small", {}, t.u)),
+    el("div", { class: "det" }, t.det, t.ayuda ? el("button", { class: "info", "aria-label": "¿Qué es?", onclick: () => toast(t.ayuda) }, "?") : ""))));
+}
+
+function pintarContabilidad(d) {
+  const c = d.contabilidad, barra = $("#r-barra"), ley = $("#r-leyenda");
+  if (!c) {
+    barra.replaceChildren(); ley.replaceChildren();
+    $("#r-nota").textContent = "Todavía no hay contabilidad por ranuras en este rango: empieza cuando el receptor corre con rtldavis 0.15+crc (receptor ≥ 3.2). La entrega (PDR) sí se calcula con los datos anteriores.";
+    return;
+  }
+  const ks = ["validas", "danadas", "sin_rastro"];
+  barra.replaceChildren(...ks.filter((k) => c[k]).map((k) => el("span", { title: `${ETQ_ENLACE[k]}: ${miles(c[k])} (${fmt(c.pct[k], 3)} %)`,
+    style: `flex-grow:${c[k]};background:${css(COL_ENLACE[k])}` })));
+  ley.replaceChildren(...ks.map((k) => el("div", {}, el("i", { style: `background:${css(COL_ENLACE[k])}` }),
+    `${ETQ_ENLACE[k]}: `, el("b", {}, miles(c[k])), ` (${fmt(c.pct[k], 3)} %)`)));
+  const suma = ks.reduce((a, k) => a + (c.pct[k] || 0), 0);
+  $("#r-nota").textContent = `${miles(c.esperadas)} transmisiones esperadas = ${fmt(suma, 1)} %. ` +
+    `Fallos de CRC: ${miles(c.descartes.crc_fallos)} en total; ${miles(c.descartes.crc_en_danadas)} en transmisiones dañadas y ` +
+    `${miles(c.descartes.crc_ruido + c.descartes.crc_con_copia)} descartes correctos (ruido o copias). ` +
+    (d.crc_desde && d.crc_desde > d.desde + 600 ? `El desglose empieza el ${fechaTxt(d.crc_desde * 1000)}.` : "");
+}
+
+function graficasRecepcion(d) {
+  const cont = $("#graficas-recepcion");
+  limpiarGraficas("rec"); cont.replaceChildren();
+  const t = d.t.map((x) => x * 1000), sr = d.series, res = d.resolucion;
+  const linea = (nombre, k, col, extra = {}) => ({ name: nombre, type: "line", showSymbol: false, data: conCortes(t, sr[k], res), color: css(col),
+    lineStyle: { width: 2 }, connectNulls: false, ...extra });
+  const barras = (nombre, k, col, pila) => ({ name: nombre, type: "bar", stack: pila, data: t.map((x, i) => [x, sr[k][i]]), color: css(col), barMaxWidth: 14 });
+  const sinDatos = !t.length ? { type: "text", left: "center", top: "middle", style: { text: "Sin datos en este rango", fill: css("--tenue"), fontSize: 14 } } : undefined;
+  const g = [
+    ["Transmisiones por intervalo", [{ nombre: "transmisiones" }], [barras("Válidas", "validas", "--ok", "t"),
+      barras("Dañadas (CRC)", "danadas", "--error", "t"), barras("No llegaron", "sin_rastro", "--c8", "t")]],
+    ["Entrega y efectividad", [{ nombre: "%", max: 100 }], [linea("Entrega (válidas/esperadas)", "entrega_pct", "--c4"),
+      linea("Efectividad (válidas/llegaron)", "efectividad_pct", "--ok")]],
+    ["Fallos de CRC por tipo", [{ nombre: "tramas" }], [barras("Ruido (descarte correcto)", "crc_ruido", "--c8", "c"),
+      barras("Copia de una válida", "crc_con_copia", "--alerta", "c")]],
+    ["Incidencias del receptor", [{ nombre: "eventos" }], [barras("Errores USB", "errores_usb", "--error", "i"),
+      barras("Reinicios rtldavis", "reinicios", "--alerta", "i")]],
+  ];
+  g.forEach(([titulo, ejes, series], i) => {
+    const op = opcionBase({ ejes, zoom: false });
+    op.series = series;
+    if (sinDatos) op.graphic = sinDatos;
+    crearGrafica(cont, titulo, `rec-${i}`, op, () => ampliarGrafica(titulo, op));
+  });
 }
 
 // ====================================================================== PROMEDIADO DAVIS
@@ -520,6 +648,7 @@ function pintarSesion() {
   $("#menu-usuario").classList.toggle("oculto", !u);
   $$(".solo-admin").forEach((x) => x.classList.toggle("oculto", !(u && u.rol === "admin")));
   if (u) $("#btn-usuario").textContent = `${u.nombre || u.usuario} ▾`;
+  marcaAgua();
   if (u && u.cambiar_clave) { $("#clave-nota").textContent = "El administrador pidió que cambies tu contraseña."; abrirModal("#modal-clave"); }
   if (!u && S.tab === "usuarios") location.hash = "#vivo";
 }
@@ -528,8 +657,17 @@ function abrirModal(s) { $(s).classList.remove("oculto"); const i = $("input", $
 function cerrarModales() { $$(".modal").forEach((m) => m.classList.add("oculto")); limpiarGraficas("modal"); }
 
 // ====================================================================== navegación
+const AYUDA_TAB = {
+  vivo: "Valores actuales de la estación y tendencias de las últimas horas.",
+  historico: "Elige un periodo (o un atajo) y las variables; las gráficas se actualizan solas.",
+  recepcion: "Qué tan bien llega la señal: tramas válidas, fallos de CRC, pérdidas y fallas del receptor.",
+  promediado: "Registros promediados como los de la consola Davis (método validado del artículo).",
+  consultor: "Descarga datos por días u horas en CSV, TXT o PNG.",
+  usuarios: "Cuentas del equipo y bitácora de actividad.",
+};
+
 function irA(tab) {
-  if (!["vivo", "historico", "promediado", "consultor", "usuarios"].includes(tab)) tab = "vivo";
+  if (!["vivo", "historico", "recepcion", "promediado", "consultor", "usuarios"].includes(tab)) tab = "vivo";
   if (tab === "usuarios" && S.usuario?.rol !== "admin") tab = "vivo";
   S.tab = tab;
   $$(".pestanas a").forEach((a) => a.classList.toggle("activa", a.dataset.tab === tab));
@@ -538,9 +676,54 @@ function irA(tab) {
   // al abrir cada sección las gráficas se crean de nuevo: la animación arranca de cero hasta el punto actual
   if (tab === "vivo") { pintarTarjetas(); cargarVivo(true); }
   if (tab === "historico") cargarHistorico();
+  if (tab === "recepcion") cargarRecepcion();
+  $("#ayuda-tab").textContent = AYUDA_TAB[tab] + (["promediado", "consultor"].includes(tab) && !S.usuario ? " Requiere sesión." : "");
+  document.body.dataset.tab = tab;
   if (tab === "promediado" && S.usuario) cargarPromediado();
   if (tab === "usuarios") cargarUsuarios();
   if (tab === "consultor") { limpiarGraficas("cons"); $("#graficas-consultor").replaceChildren(); }
+}
+
+// ====================================================================== protección de contenido
+// Un sitio web NO puede impedir una captura o grabación hecha por el sistema operativo o
+// por otro dispositivo. Esto es disuasorio: marca de agua (con el usuario si hay sesión),
+// impresión deshabilitada, se borra el portapapeles al pulsar ImprPant y, en las secciones
+// privadas, el contenido se oculta mientras la ventana no tiene el foco.
+const TABS_PRIVADAS = ["promediado", "consultor", "usuarios"];
+
+function marcaAgua() {
+  const quien = S.usuario ? `${S.usuario.usuario} · ` : "";
+  const txt = `${quien}${location.host} · ${new Date().toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}`
+    .replace(/[<>&'"]/g, "");
+  const op = S.usuario ? 0.11 : 0.06;
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='420' height='240'><text x='210' y='120' text-anchor='middle' ` +
+    `transform='rotate(-22 210 120)' fill='rgba(140,155,175,${op})' font-family='system-ui,sans-serif' font-size='15'>${txt}</text></svg>`;
+  $("#marca-agua").style.backgroundImage = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
+function protegerContenido() {
+  marcaAgua();
+  setInterval(marcaAgua, 60000);
+  const ocultar = (si) => $("#protector").classList.toggle("oculto", !si);
+  window.addEventListener("blur", () => { if (S.usuario && TABS_PRIVADAS.includes(S.tab)) ocultar(true); });
+  window.addEventListener("focus", () => ocultar(false));
+  document.addEventListener("visibilitychange", () => { if (document.hidden && S.usuario && TABS_PRIVADAS.includes(S.tab)) ocultar(true); });
+  document.addEventListener("keyup", (e) => {
+    if (e.key === "PrintScreen") {
+      try { navigator.clipboard?.writeText(`Captura no permitida · ${location.host}`).catch(() => {}); } catch { /* */ }
+      ocultar(true); setTimeout(() => ocultar(false), 1500);
+      toast("Las capturas de pantalla no están permitidas en este sitio", true);
+    }
+  });
+  document.addEventListener("keydown", (e) => {
+    const k = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && (k === "p" || (k === "s" && !e.shiftKey))) {
+      e.preventDefault();
+      toast(S.usuario ? "Usa la sección Descargas para guardar datos" : "Inicia sesión para descargar datos", true);
+    }
+  });
+  document.addEventListener("contextmenu", (e) => { if (e.target.closest("canvas, .tarjeta, .grafica")) e.preventDefault(); });
+  document.addEventListener("dragstart", (e) => { if (e.target.closest("canvas, img")) e.preventDefault(); });
 }
 
 // ====================================================================== arranque
@@ -572,12 +755,21 @@ async function iniciar() {
   window.addEventListener("hashchange", () => irA(location.hash.slice(1)));
   window.addEventListener("resize", () => S.graficas.forEach((g) => g.resize()));
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { actualizarEstado(); irA(S.tab); } });
+  $("#r-rango").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    $$("#r-rango button").forEach((x) => x.classList.toggle("activo", x === b));
+    R.horas = Number(b.dataset.h); cargarRecepcion();
+  });
+  for (const id of ["#h-desde", "#h-hasta", "#h-res"]) $(id).addEventListener("change", () => {
+    $$("#h-atajos button").forEach((x) => x.classList.remove("activo")); cargarHistorico(); });
   $("#vivo-rango").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b) return;
     $$("#vivo-rango button").forEach((x) => x.classList.toggle("activo", x === b));
     S.vivoHoras = Number(b.dataset.h); cargarVivo(true);
   });
-  $("#h-atajos").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { presetRango(b.dataset.p, $("#h-desde"), $("#h-hasta")); cargarHistorico(); } });
+  $("#h-atajos").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return;
+    $$("#h-atajos button").forEach((x) => x.classList.toggle("activo", x === b));
+    presetRango(b.dataset.p, $("#h-desde"), $("#h-hasta")); cargarHistorico(); });
   $("#h-consultar").onclick = cargarHistorico;
   $("#p-consultar").onclick = cargarPromediado;
   $("#p-descargar").onclick = () => {
@@ -649,11 +841,13 @@ async function iniciar() {
     } catch (err) { toast(err.message, true); }
   });
 
+  protegerContenido();
   pintarSesion();
   await actualizarEstado();
   irA(location.hash.slice(1) || "vivo");
   setInterval(actualizarEstado, 5000);
   setInterval(() => { if (S.tab === "vivo" && !document.hidden && S.estado?.conexion !== "fuera_de_linea") cargarVivo(false); }, 60000);
+  setInterval(() => { if (S.tab === "recepcion" && !document.hidden) cargarRecepcion(); }, 60000);
   setInterval(async () => { try { S.meta.rango = (await api("/api/meta")).rango; } catch { /* */ } }, 300000);
 }
 

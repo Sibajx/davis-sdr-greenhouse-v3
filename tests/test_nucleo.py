@@ -40,6 +40,33 @@ class TestProcesamiento(unittest.TestCase):
         self.assertAlmostEqual(n.est.valores["temp"], 27.75)
         n.finalizar()
 
+    def test_contabilidad_por_ranuras(self):
+        """válidas + dañadas + sin rastro = esperadas; los CRC fuera de ranura son ruido."""
+        n, _ = nuevo()
+        P = config.periodo_tx_seg()
+        V = "8005813339007F03 1 0 0 0 0 msg.ID=0"
+        n.procesar_linea("x rtldavis.go VERSION=0.15+crc", 999.0)
+        self.assertTrue(n.sdr.crc_disponible)
+        n.procesar_linea("x CRC ERROR 0102 ok=0", 999.5)                # antes de sincronizar → ruido
+        t0 = 1000.0
+        n.procesar_linea("12:00:00.1 " + V, t0)                          # ranura 0: válida
+        n.procesar_linea("x CRC ERROR 0102 ok=1", t0)                    # copia dañada en el mismo bloque
+        n.procesar_linea("x CRC ERROR 0102 ok=0", t0 + P + 0.002)        # ranura 1: llegó dañada
+        n.procesar_linea("x CRC ERROR 0102 ok=0", t0 + 1.9 * P)          # entre ranuras → ruido
+        # ranura 2: nada (sin rastro)
+        n.procesar_linea("12:00:07.8 " + V, t0 + 3 * P + 0.002)          # ranura 3: válida
+        n.procesar_trama(bytes(8), t0 + 3 * P + 0.5)                     # inválida (CRC ok, ceros)
+        s = n.sdr
+        self.assertEqual((s.paquetes, s.danadas, s.sin_rastro), (2, 1, 1))
+        self.assertEqual((s.descartes_crc, s.crc_con_copia, s.crc_ruido, s.invalidas), (4, 1, 2, 1))
+        n._cerrar_enlace(t0 + 60)
+        e = n.enlace_ultima
+        self.assertEqual(e["esperadas"], e["validas"] + e["danadas"] + e["sin_rastro"])
+        self.assertEqual(e["esperadas"], 4)   # 2 válidas + 1 dañada + 1 sin rastro
+        n._cerrar_enlace(t0 + 120)            # ventana siguiente: contadores en cero
+        self.assertEqual(n.enlace_ultima["crc_fallos"], 0)
+        n.finalizar()
+
     def test_otro_transmisor(self):
         n, _ = nuevo()
         self.assertIsNone(n.procesar_trama(trama(0x83, 0, 0, 0x33, 0x39)))

@@ -33,7 +33,7 @@ from .alertas import Notificador, calcular_backoff
 from .rutas import Rutas
 
 logger = logging.getLogger("DavisMonitor")
-VERSION = "3.1.0"
+VERSION = "3.2.0"
 MAX_VUELCOS_POR_TRAMA = 30  # salto mayor = contador re-sincronizado, no lluvia real
 
 
@@ -110,6 +110,13 @@ class NucleoMonitoreo:
         self._ultimo_json = 0.0
         self._ultima_compresion = 0.0
         self._ultima_calidad: Optional[float] = None
+        self._t_valida: Optional[float] = None   # hora de la última trama válida (ancla de ranuras)
+        self._crc_pend: list = []                 # horas de CRC fallidos aún sin clasificar
+        self.fases_crc: deque = deque(maxlen=4000)  # diagnóstico: fase de cada CRC respecto a la ranura (s)
+        self._enlace_prev = self._contadores_enlace()
+        self._enlace_inicio = ahora
+        self._freq_err = [0.0, 0]          # suma, n de los hops de la ventana
+        self.enlace_ultima: dict = {}      # última ventana cerrada (para estado.json)
 
         self._alerta = {"helada": False, "tormenta": False, "sin_datos": False}
         self._ultima_alerta_bateria = 0.0
@@ -139,11 +146,32 @@ class NucleoMonitoreo:
         with self.lock:
             if clase == "hop":
                 self.sdr.canal, freq, self.sdr.error_freq_hz = dato[0], dato[1], dato[2]
+                self._freq_err[0] += dato[2]
+                self._freq_err[1] += 1
                 self.sdr.freq_mhz = round(freq / 1e6, 3)
             elif clase == "init":
                 self.sdr.estado = "Sincronizando"
             elif clase == "sync":
                 self.sdr.estado = "Recibiendo"
+            elif clase == "crc":
+                self.sdr.descartes_crc += 1
+                if dato:                       # mismo bloque que una trama válida
+                    self.sdr.crc_con_copia += 1
+                elif self._t_valida is None:   # sincronizando: rtldavis escucha a ciegas, es ruido
+                    self.sdr.crc_ruido += 1
+                else:
+                    self._crc_pend.append(ahora)
+                    if len(self._crc_pend) > 5000:   # sin válidas por mucho tiempo
+                        self.sdr.crc_ruido += len(self._crc_pend)
+                        self._crc_pend.clear()
+            elif clase == "perdida":
+                self.sdr.perdidas += 1
+            elif clase == "version":
+                self.sdr.version_rtldavis = dato
+                self.sdr.crc_disponible = "+crc" in dato
+                if not self.sdr.crc_disponible:
+                    logger.info(f"rtldavis {dato} sin el parche de CRC: el monitor de CRC solo verá la "
+                                "validación propia (ver deploy/rtldavis/)")
             elif clase == "usb_error":
                 self.sdr.estado = "ERROR USB"
                 self.errores_usb += 1
@@ -158,11 +186,12 @@ class NucleoMonitoreo:
         if not protocolo.validar_crc(datos):
             with self.lock:
                 self.sdr.descartes_crc += 1
+                self.sdr.crc_ruido += 1
             return None
         lec = protocolo.decodificar(datos, config.TAMANO_CUBETA_MM)
         if lec is None:   # CRC correcto pero contenido imposible (ceros, tipo inexistente)
             with self.lock:
-                self.sdr.descartes_crc += 1
+                self.sdr.invalidas += 1
             return None
         if lec.tx_id != config.TX_ID_OBJETIVO:
             with self.lock:
@@ -181,6 +210,7 @@ class NucleoMonitoreo:
             self.est.ultimo_paquete = ahora
             self.ventana.registrar(v, lluvia_mm)
             self.sdr.paquetes += 1
+            self._resolver_ranuras(ahora)
             self.sdr.ultima_trama = lec.trama_hex
             self.sdr.estado = "Recibiendo"
             self._paquetes_desde_inicio_proceso += 1
@@ -258,6 +288,7 @@ class NucleoMonitoreo:
                     self.sdr.inicio_proceso = inicio
                     self.sdr.estado = "Sincronizando"
                     self._sincronizado = False
+                    self._t_valida = None
                     self._paquetes_desde_inicio_proceso = 0
                 logger.info(f"rtldavis iniciado (pid {proc.pid})")
                 try:
@@ -318,6 +349,7 @@ class NucleoMonitoreo:
             self.sdr.estado = "Reiniciando"
             self.sdr.inicio_proceso = ahora  # evita re-disparo mientras arranca el nuevo
             self._sincronizado = False
+            self._t_valida = None
         logger.warning(f"Watchdog: reiniciando rtldavis ({motivo})")
         self._reinicios_ts.append(ahora)
         recientes = [t for t in self._reinicios_ts if ahora - t < 1800]
@@ -379,7 +411,77 @@ class NucleoMonitoreo:
         req = [c.strip() for c in config.CAMPOS_REQUERIDOS.split(",") if c.strip()]
         return all(self.est.valores.get(c) is not None for c in req)
 
+    def _resolver_ranuras(self, t: float) -> None:
+        """Llamar con self.lock tomado, al llegar una trama válida en t.
+        Entre la válida anterior y esta, las ranuras intermedias (cada periodo) no
+        trajeron trama válida: si hubo un CRC fallido en ±tolerancia la transmisión
+        llegó DAÑADA; si no, SIN RASTRO. Los CRC restantes son ruido o copias."""
+        s, P, tol = self.sdr, config.periodo_tx_seg(), config.TOLERANCIA_RANURA_SEG
+        prev, pend = self._t_valida, self._crc_pend
+        self._t_valida, self._crc_pend = t, []
+        if prev is None:
+            s.crc_ruido += len(pend)
+            return
+        n = round((t - prev) / P)
+        usados = set()
+        for k in range(1, max(1, n)):
+            ranura = prev + k * P
+            hit = [i for i, tc in enumerate(pend) if abs(tc - ranura) <= tol]
+            if hit:
+                s.danadas += 1
+                usados.update(hit)
+            else:
+                s.sin_rastro += 1
+        for i, tc in enumerate(pend):
+            # diagnóstico: fase respecto a la ranura más cercana (ancla = válida anterior)
+            f = (tc - prev) % P
+            self.fases_crc.append(round(f - P if f > P / 2 else f, 4))
+            if i in usados:
+                continue
+            if abs(tc - t) <= tol:
+                s.crc_con_copia += 1
+            else:
+                s.crc_ruido += 1
+
+    def _histograma_fases(self) -> dict:
+        """Diagnóstico de la tolerancia: CRC fallidos por fase respecto a la ranura
+        (bins de 1 ms en ±20 ms). Las tramas dañadas se agolparían en 0; el ruido es plano."""
+        h = {}
+        for f in list(self.fases_crc):
+            k = "fuera" if abs(f) > 0.02 else str(int(round(f * 1000)))
+            h[k] = h.get(k, 0) + 1
+        return h
+
+    def _contadores_enlace(self) -> dict:
+        s = self.sdr
+        return {"validas": s.paquetes, "crc_fallos": s.descartes_crc, "crc_ruido": s.crc_ruido,
+                "crc_con_copia": s.crc_con_copia, "danadas": s.danadas, "sin_rastro": s.sin_rastro,
+                "perdidas": s.perdidas, "invalidas": s.invalidas, "otro_tx": s.descartes_id,
+                "errores_usb": self.errores_usb, "reinicios": s.reinicios}
+
+    def _cerrar_enlace(self, ahora: float) -> None:
+        """Contadores del enlace de esta ventana (diferencias, no acumulados).
+        Se registra aunque no haya datos meteorológicos: así se ven las caídas."""
+        with self.lock:
+            act = self._contadores_enlace()
+            d = {k: act[k] - self._enlace_prev.get(k, 0) for k in act}
+            self._enlace_prev = act
+            fe = round(self._freq_err[0] / self._freq_err[1]) if self._freq_err[1] else None
+            self._freq_err = [0.0, 0]
+            crc_ok = self.sdr.crc_disponible
+        seg = max(1.0, ahora - self._enlace_inicio)
+        self._enlace_inicio = ahora
+        # esperadas por RANURAS resueltas: válidas + dañadas + sin rastro (suma exacta, 100 %)
+        esperadas = d["validas"] + d["danadas"] + d["sin_rastro"]
+        self.enlace_ultima = dict(d, segundos=round(seg, 1), esperadas=esperadas, error_freq_hz=fe,
+                                  crc_disponible=crc_ok)
+        if self.db is not None:
+            self.db.enlace((ahora, round(seg, 1), d["validas"], esperadas, d["danadas"], d["sin_rastro"],
+                            d["crc_fallos"], d["crc_ruido"], d["crc_con_copia"], d["perdidas"], d["invalidas"],
+                            d["otro_tx"], d["errores_usb"], d["reinicios"], fe, int(crc_ok)))
+
     def _guardar_ventana(self, ahora: float) -> None:
+        self._cerrar_enlace(ahora)
         with self.lock:
             if not self.datos_completos(ahora):
                 self.sdr.estado_csv = "Sincronizando..."
@@ -422,7 +524,9 @@ class NucleoMonitoreo:
         with self.lock:
             s = self.sdr
             logger.info(
-                f"HEARTBEAT │ estado={s.estado} │ válidas={s.paquetes} │ crc_fail={s.descartes_crc} │ "
+                f"HEARTBEAT │ estado={s.estado} │ válidas={s.paquetes} │ crc_fail={s.descartes_crc} (ruido {s.crc_ruido}, dañadas {s.danadas}) │ "
+                f"sin_rastro={s.sin_rastro} │ "
+                f"perdidas={s.perdidas} │ invalidas={s.invalidas} │ "
                 f"id_fail={s.descartes_id} │ reinicios={s.reinicios} │ errores_usb={self.errores_usb} │ última_sync={s.ultima_sync_seg}s │ "
                 f"calidad_última_ventana={self._ultima_calidad}% │ lluvia_hoy={self.est.lluvia_hoy_mm:.1f}mm │ "
                 f"sqlite={'%d filas' % self.db.filas_escritas if self.db else 'off'}")
@@ -450,6 +554,11 @@ class NucleoMonitoreo:
                 "estado": s.estado, "freq_mhz": s.freq_mhz, "canal": s.canal,
                 "error_freq_hz": s.error_freq_hz, "paquetes_validos": s.paquetes,
                 "descartes_crc": s.descartes_crc, "descartes_id": s.descartes_id,
+                "crc_ruido": s.crc_ruido, "crc_con_copia": s.crc_con_copia, "danadas": s.danadas,
+                "sin_rastro": s.sin_rastro, "perdidas": s.perdidas, "invalidas": s.invalidas,
+                "crc_disponible": s.crc_disponible, "version_rtldavis": s.version_rtldavis,
+                "enlace_ultima_ventana": self.enlace_ultima,
+                "fase_crc_ms": self._histograma_fases(),
                 "reinicios": s.reinicios, "ultimo_reinicio": s.ultimo_reinicio,
                 "errores_usb": self.errores_usb,
                 "ultima_sync_seg": s.ultima_sync_seg,
