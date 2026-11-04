@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "davis-monitor"
-version = "3.1.0"
+version = "3.2.0"
 description = "Monitor de estación Davis Vantage Pro 2 vía RTL-SDR (rtldavis)"
 requires-python = ">=3.9"
 dependencies = []

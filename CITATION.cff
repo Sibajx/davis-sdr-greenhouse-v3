@@ -5,7 +5,7 @@ message: >-
   repositorio original, donde están el manuscrito y los datos del paper.
 title: "davis-sdr-greenhouse v3: receptor Davis Vantage Pro 2 vía RTL-SDR con dashboard web"
 type: software
-version: "3.0.0"
+version: "3.2.0"
 date-released: "2026-11-03"
 license: MIT
 repository-code: "https://github.com/Sibajx/davis-sdr-greenhouse-v3"
