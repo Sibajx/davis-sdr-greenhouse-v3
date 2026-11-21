@@ -98,6 +98,28 @@ class TestAuth(unittest.TestCase):
         for _ in range(A.MAX_INTENTOS + 2):
             self.a.iniciar_sesion("jefa", "Clave-segura-1", "8.8.8.8")
 
+    def test_bloqueo_no_deja_fuera_al_dueno_desde_otra_ip(self):
+        """A2: 5 fallos con el nombre del admin desde una IP no lo bloquean desde otra."""
+        for _ in range(A.MAX_INTENTOS):
+            with self.assertRaises(PermissionError):
+                self.a.iniciar_sesion("jefa", "mala-clave-xx", "6.6.6.6")
+        self.assertIn("token", self.a.iniciar_sesion("jefa", "Clave-segura-1", "7.7.7.7"))
+
+    def test_fallos_no_crecen_sin_limite(self):
+        """A2: el registro de fallos se purga cuando pasa de su tope."""
+        viejo = time.time() - A.BLOQUEO_SEG - 1
+        self.a._fallos.update({f"ip:10.0.{i}": [1, viejo] for i in range(A.MAX_CLAVES_FALLOS + 50)})
+        with self.assertRaises(PermissionError):
+            self.a.iniciar_sesion("nadie", "x", "11.1.1.1")
+        self.assertLessEqual(len(self.a._fallos), A.MAX_CLAVES_FALLOS)
+
+    def test_sesion_tiene_vida_maxima(self):
+        """A4: una sesión renovada sin parar caduca igual tras SESION_MAX_SEG."""
+        r = self.a.iniciar_sesion("jefa", "Clave-segura-1", "1.1.1.1")
+        with self.a._con() as c:
+            c.execute("UPDATE sesiones SET creada = creada - ?", (A.SESION_MAX_SEG + 60,))
+        self.assertIsNone(self.a.sesion(r["token"]))
+
     def test_validaciones(self):
         for u, c in (("x", "Clave-segura-1"), ("bien", "corta1"), ("bien", "soloLetrasAqui")):
             with self.assertRaises(ValueError):
@@ -286,6 +308,46 @@ class TestAPI(unittest.TestCase):
             servidor.LOGINS_SIMULTANEOS, servidor.LOGIN_ESPERA_SEG = viejo_sem, vieja_espera
         self.assertEqual(st, 503)
 
+    def test_cambio_de_clave_obligatorio_en_servidor(self):
+        """A3: con cambio de clave pendiente, la API solo deja cambiarla, ver la sesión o salir."""
+        self.auth.crear_usuario("temporal1", "Clave-temporal-1", "admin", "Temporal", True)
+        jar = CookieJar()
+        st, _, b = self.pedir("/api/login", {"usuario": "temporal1", "clave": "Clave-temporal-1"}, jar=jar)
+        self.assertEqual(st, 200)
+        csrf = json.loads(b)["usuario"]["csrf"]
+        st, _, b = self.pedir("/api/usuarios", jar=jar)
+        self.assertEqual(st, 403)
+        self.assertIn("cambiar tu contraseña", json.loads(b)["error"])
+        self.assertEqual(self.pedir("/api/sesion", jar=jar)[0], 200)
+        st = self.pedir("/api/cuenta/clave", {"actual": "Clave-temporal-1", "nueva": "Clave-nueva-123"},
+                        jar=jar, csrf=csrf)[0]
+        self.assertEqual(st, 200)
+
+    def test_vars_repetidas_y_fuente_invalida(self):
+        """E2: vars se deduplica y acota; una fuente desconocida es 400, no 500."""
+        muchas = ",".join(["temp"] * 500)
+        st, _, b = self.pedir(f"/api/serie?desde={T0 - 3600}&hasta={T0}&vars={muchas}&res=300")
+        self.assertEqual(st, 200)
+        self.assertEqual(list(json.loads(b)["series"]), ["temp"])
+        jar, _ = self.login()
+        self.assertEqual(self.pedir(f"/api/vista-previa?fuente=xyz&desde={T0 - 3600}&hasta={T0}", jar=jar)[0], 400)
+
+    def test_content_length_negativo(self):
+        """A5: Content-Length negativo responde 400 sin colgar el hilo."""
+        import socket
+        s = socket.create_connection(("127.0.0.1", self.srv.server_address[1]), timeout=5)
+        s.sendall(b"POST /api/login HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
+                  b"Content-Length: -1\r\n\r\n")
+        resp = s.recv(200)
+        s.close()
+        self.assertIn(b" 400 ", resp)
+
+    def test_auditoria_limite_acotado(self):
+        jar, _ = self.login()
+        st, _, b = self.pedir("/api/auditoria?limite=-1", jar=jar)
+        self.assertEqual(st, 200)
+        self.assertLessEqual(len(json.loads(b)["eventos"]), 1)
+
     def test_serie_tope_de_puntos(self):
         from davis_web import consultas as C
         d = json.loads(self.pedir(f"/api/serie?desde={T0 - 300 * 86400}&hasta={T0}&vars=temp&res=60")[2])
@@ -317,10 +379,15 @@ class TestAPI(unittest.TestCase):
         self.assertTrue(any(e["accion"] == "descarga" for e in eventos))
         # un usuario normal no puede administrar
         jar2 = CookieJar()
-        self.pedir("/api/login", {"usuario": "tecnico", "clave": "Clave-tecnico-9"}, jar=jar2)
+        b = self.pedir("/api/login", {"usuario": "tecnico", "clave": "Clave-tecnico-9"}, jar=jar2)[2]
+        exp = f"/api/exportar?fuente=minuto&desde={T0 - 600}&hasta={T0}&formatos=csv"
+        self.assertEqual(self.pedir(exp, jar=jar2)[0], 403)            # clave temporal: primero debe cambiarla
+        self.assertEqual(self.pedir("/api/cuenta/clave", {"actual": "Clave-tecnico-9", "nueva": "Clave-tecnico-10"},
+                                    jar=jar2, csrf=json.loads(b)["usuario"]["csrf"])[0], 200)
+        jar2 = CookieJar()                                              # cambiar la clave cierra las sesiones
+        self.pedir("/api/login", {"usuario": "tecnico", "clave": "Clave-tecnico-10"}, jar=jar2)
         self.assertEqual(self.pedir("/api/usuarios", jar=jar2)[0], 403)
-        self.assertEqual(self.pedir(f"/api/exportar?fuente=minuto&desde={T0 - 600}&hasta={T0}&formatos=csv",
-                                    jar=jar2)[0], 200)
+        self.assertEqual(self.pedir(exp, jar=jar2)[0], 200)
 
 
 if __name__ == "__main__":

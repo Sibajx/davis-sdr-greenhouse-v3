@@ -20,6 +20,7 @@ StartLimitIntervalSec=900
 StartLimitBurst=10
 
 [Service]
+UMask=0077
 Type=notify
 NotifyAccess=main
 User=alternas
