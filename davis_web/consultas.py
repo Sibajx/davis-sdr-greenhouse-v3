@@ -308,7 +308,9 @@ def enlace(desde: float, hasta: float, resolucion: Optional[int] = None) -> dict
     Antes de la tabla `enlace` (receptor < 3.2) solo hay válidas/esperadas
     (tabla `resumen`): esos intervalos no tienen desglose (null).
     """
-    res = resolucion or resolucion_auto(hasta - desde, 600)
+    res = resolucion if resolucion in RESOLUCIONES else resolucion_auto(hasta - desde, 600)
+    if (hasta - desde) / res > MAX_PUNTOS:
+        res = resolucion_auto(hasta - desde, MAX_PUNTOS)
     cubos: Dict[int, dict] = {}
     seg_con_datos = 0.0
     for ruta in _bases():

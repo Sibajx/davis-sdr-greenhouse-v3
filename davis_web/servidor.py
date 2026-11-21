@@ -31,6 +31,8 @@ MAX_CUERPO = 64 * 1024
 
 # ---- protección del sitio público (la Pi también es el receptor: no puede saturarse)
 CONSULTAS_PESADAS = threading.BoundedSemaphore(3)   # series/promediado/exportar simultáneos
+LOGINS_SIMULTANEOS = threading.BoundedSemaphore(2)  # scrypt usa 16 MiB por intento: sin tope, una ráfaga mata el servicio
+LOGIN_ESPERA_SEG = 5.0
 LIMITES = {"api": (600, 60), "pesada": (60, 60)}    # (peticiones, ventana s) por IP; el lab sale por 1 sola IP (NAT)
 _HITS: dict = {}
 _HITS_LOCK = threading.Lock()
@@ -303,6 +305,8 @@ def ep_enlace(h, q):
     if hasta - desde > 400 * 86400:
         raise ValueError("Rango máximo: 400 días")
     res = int(q["res"]) if q.get("res") else None
+    if res not in consultas.RESOLUCIONES:   # res=0 daba 500; res=1 armaba cientos de miles de cubetas
+        res = None
     desde, hasta = round(desde / 10) * 10, round(hasta / 10) * 10
     clave = ("enlace", desde, hasta, res)
     cuerpo = CACHE.obtener(clave)
@@ -328,10 +332,15 @@ def ep_login(h, q):
     origen = h.headers.get("Origin")
     if origen and urlparse(origen).netloc != h.headers.get("Host"):
         raise ErrorHTTP(403, "Origen no permitido")
+    sem = LOGINS_SIMULTANEOS
+    if not sem.acquire(timeout=LOGIN_ESPERA_SEG):
+        raise ErrorHTTP(503, "Servidor ocupado, intenta de nuevo en unos segundos")
     try:
         r = h.auth.iniciar_sesion(str(d.get("usuario", ""))[:64], str(d.get("clave", ""))[:256], h.ip())
     except PermissionError as e:
         raise ErrorHTTP(401, str(e))
+    finally:
+        sem.release()
     u = dict(r["usuario"], csrf=r["csrf"])
     h.json({"usuario": u}, extra={"Set-Cookie": h.cookie_sesion(r["token"], int(h.auth.duracion))})
 

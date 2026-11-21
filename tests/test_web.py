@@ -69,6 +69,35 @@ class TestAuth(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "Demasiados"):
             self.a.iniciar_sesion("jefa", "Clave-segura-1", "2.2.2.2")   # aun con la clave correcta
 
+    def test_login_paralelo_no_evalua_mas_de_max_intentos(self):
+        """A1: N logins a la vez desde una IP no deben evaluar más de MAX_INTENTOS claves."""
+        evaluadas, lock, original = [0], threading.Lock(), A.verificar_clave
+
+        def lenta(clave, h):
+            with lock:
+                evaluadas[0] += 1
+            time.sleep(0.05)
+            return original(clave, h)
+        A.verificar_clave = lenta
+        try:
+            hilos = [threading.Thread(target=lambda: self._intento("jefa", "mala-clave-xx", "9.9.9.9"))
+                     for _ in range(20)]
+            for t in hilos: t.start()
+            for t in hilos: t.join()
+        finally:
+            A.verificar_clave = original
+        self.assertLessEqual(evaluadas[0], A.MAX_INTENTOS)
+
+    def _intento(self, u, c, ip):
+        try:
+            self.a.iniciar_sesion(u, c, ip)
+        except PermissionError:
+            pass
+
+    def test_login_exitoso_no_consume_cupo_de_ip(self):
+        for _ in range(A.MAX_INTENTOS + 2):
+            self.a.iniciar_sesion("jefa", "Clave-segura-1", "8.8.8.8")
+
     def test_validaciones(self):
         for u, c in (("x", "Clave-segura-1"), ("bien", "corta1"), ("bien", "soloLetrasAqui")):
             with self.assertRaises(ValueError):
@@ -231,6 +260,31 @@ class TestAPI(unittest.TestCase):
             servidor._HITS.clear()
         self.assertEqual(codigos[:3], [200, 200, 200])
         self.assertEqual(codigos[3:], [429, 429])
+
+    def test_enlace_res_fuera_de_lista(self):
+        """E1: res=0 no debe dar 500 y res=1 en un rango largo no debe pasar de MAX_PUNTOS cubetas."""
+        from davis_web import consultas as C
+        st, _, b = self.pedir(f"/api/enlace?desde={T0 - 3600}&hasta={T0}&res=0")
+        self.assertEqual(st, 200)
+        self.assertIn(json.loads(b)["resolucion"], C.RESOLUCIONES)
+        st, _, b = self.pedir(f"/api/enlace?desde={T0 - 300 * 86400}&hasta={T0}&res=1")
+        d = json.loads(b)
+        self.assertEqual(st, 200)
+        self.assertIn(d["resolucion"], C.RESOLUCIONES)
+        self.assertLessEqual((300 * 86400) / d["resolucion"], C.MAX_PUNTOS)
+
+    def test_login_ocupado_da_503(self):
+        """A1: si ya hay logins evaluándose, el siguiente espera poco y recibe 503 (no satura la Pi)."""
+        from davis_web import servidor
+        viejo_sem, vieja_espera = servidor.LOGINS_SIMULTANEOS, servidor.LOGIN_ESPERA_SEG
+        servidor.LOGINS_SIMULTANEOS, servidor.LOGIN_ESPERA_SEG = threading.BoundedSemaphore(1), 0.1
+        servidor.LOGINS_SIMULTANEOS.acquire()
+        try:
+            st = self.pedir("/api/login", {"usuario": "admin1", "clave": "Clave-segura-1"})[0]
+        finally:
+            servidor.LOGINS_SIMULTANEOS.release()
+            servidor.LOGINS_SIMULTANEOS, servidor.LOGIN_ESPERA_SEG = viejo_sem, vieja_espera
+        self.assertEqual(st, 503)
 
     def test_serie_tope_de_puntos(self):
         from davis_web import consultas as C

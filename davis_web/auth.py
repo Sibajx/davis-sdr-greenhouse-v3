@@ -224,17 +224,21 @@ class Autenticador:
             if self._bloqueado(ku, ahora) or self._bloqueado(ki, ahora):
                 self.auditar("login_bloqueado", usuario, ip)
                 raise PermissionError("Demasiados intentos. Espera 15 minutos.")
+            # El intento cuenta ANTES de scrypt: así N logins en paralelo no pasan
+            # todos el chequeo de bloqueo a la vez (antes se probaban N claves en vez de 5).
+            self._registrar_fallo(ku, ahora)
+            self._registrar_fallo(ki, ahora)
         with self._con() as c:
             r = c.execute("SELECT * FROM usuarios WHERE usuario=?", (usuario or "",)).fetchone()
         ok = verificar_clave(clave or "", r["hash"] if r else _HASH_SENUELO) and r is not None and r["activo"]
         if not ok:
-            with self._lock:
-                self._registrar_fallo(ku, ahora)
-                self._registrar_fallo(ki, ahora)
             self.auditar("login_fallido", usuario, ip)
             raise PermissionError("Usuario o contraseña incorrectos")
         with self._lock:
             self._fallos.pop(ku, None)
+            f = self._fallos.get(ki)   # un login correcto no gasta el cupo de la IP
+            if f and f[0] > 0:
+                f[0] -= 1
         token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(24)
         with self._con() as c:
             c.execute("DELETE FROM sesiones WHERE expira < ?", (ahora,))
