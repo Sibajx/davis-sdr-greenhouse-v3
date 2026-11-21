@@ -5,6 +5,8 @@ import tempfile
 _TMP = tempfile.mkdtemp(prefix="davis_test_")
 os.environ["DAVIS_DIR_DATOS"] = _TMP
 os.environ["DAVIS_WEBHOOK_URL"] = ""
+for _k in ("DAVIS_TELEGRAM_TOKEN", "DAVIS_TELEGRAM_CHAT_ID", "DAVIS_TELEGRAM_ENV"):
+    os.environ[_k] = ""   # nunca usar el bot real en las pruebas
 _CFG = os.path.join(_TMP, "config_test.json")
 with open(_CFG, "w") as _f:
     _f.write("{}")

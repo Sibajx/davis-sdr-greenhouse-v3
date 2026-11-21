@@ -27,8 +27,8 @@
 
   "dir_respaldos_extra": "",
 
+  "telegram_env": "~/.config/sibajx-bot/telegram.env",
   "webhook_url": "",
-  "webhook_formato": "ntfy",
   "webhook_timeout_seg": 5,
   "cooldown_alerta_bateria_seg": 1800,
   "umbral_helada_c": 2.0,
