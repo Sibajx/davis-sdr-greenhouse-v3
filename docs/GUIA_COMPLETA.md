@@ -45,7 +45,7 @@ Este documento reemplaza a `INSTALACION.md`, `README_MONITOR.md` y `DOCUMENTACIO
         ├──▶ datos/db/eventos_davis.db                          (SQLite: cada trama + resúmenes)
         ├──▶ datos/estado/estado.json                           (estado en vivo, cada 5 s)
         ├──▶ datos/logs/davis_monitor.log                       (log + journalctl)
-        └──▶ notificaciones push (ntfy) — opcional
+        └──▶ alertas por Telegram — opcional
 ```
 
 **Reparto del trabajo:** `rtldavis` resuelve la parte de radio (demodulación FSK y seguimiento del salto de frecuencia). `davis_monitor` empieza donde `rtldavis` termina, en el texto hexadecimal: entiende qué significa cada byte, valida, agrega, guarda, vigila que el enlace siga vivo y avisa.
@@ -73,7 +73,7 @@ davis_v2/
 │   ├── nucleo.py             el corazón: lanza/vigila rtldavis, procesa tramas, tareas periódicas
 │   ├── basedatos.py          SQLite (escritura por lotes) + comandos de consulta/exportación
 │   ├── almacenamiento.py     CSV diario + compresión de CSV viejos
-│   ├── alertas.py            notificaciones (ntfy / json) con cola y reintentos
+│   ├── alertas.py            alertas por Telegram (y webhook JSON opcional) con cola y reintentos
 │   ├── headless.py           bucle sin pantalla (servicio)
 │   ├── tui.py                interfaz de texto (curses)
 │   ├── visor.py              visor de solo lectura
@@ -274,19 +274,27 @@ Todas las claves (copiables de `config.example.json`):
 | `intervalo_heartbeat_seg` | `900` | Línea `HEARTBEAT` en el log (cada 15 min) |
 | `guardar_tramas_sqlite` | `true` | `false` = solo resúmenes (ahorra ~4.5 MB/día) |
 | `dias_retener_sin_comprimir` / `comprimir_historial_resumen` | `7` / `true` | CSV de más de 7 días → `.csv.gz` |
-| `webhook_url` / `webhook_formato` | `""` / `json` | Notificaciones. Para el celular: `https://ntfy.sh/<tema>` + `ntfy` |
+| `telegram_env` | `""` | Archivo con `TOKEN` y `CHAT_ID` del bot de Telegram (alertas al celular) |
+| `webhook_url` | `""` | Opcional: además manda cada alerta como POST JSON a esa URL |
 | `umbral_helada_c` / `histeresis_helada_c` | `2.0` / `1.0` | Alerta de helada (≤ 2 °C) y fin de helada (> 3 °C) |
 | `umbral_tormenta_mm_h` | `25` | Alerta de tormenta (sin efecto con pluviómetro inactivo) |
 | `alerta_sin_datos_seg` | `900` | Avisar si pasan 15 min sin datos de la estación |
 | `cooldown_alerta_bateria_seg` | `1800` | Mínimo entre avisos de batería |
 
-Activar notificaciones al celular (app **ntfy**, gratis): suscríbete a un tema con un nombre difícil de adivinar y agrega en `config.json`:
+Activar alertas al celular por **Telegram**: crea (o reutiliza) un bot con @BotFather, guarda su token y tu chat en un archivo **fuera del repo** y ciérralo para que solo lo lea tu usuario:
 
-```json
-{ "pluviometro_activo": false, "webhook_url": "https://ntfy.sh/greenhouse-xyz123", "webhook_formato": "ntfy" }
+```bash
+mkdir -p ~/.config/sibajx-bot && printf 'TOKEN=<token del bot>\nCHAT_ID=<tu chat id>\n' > ~/.config/sibajx-bot/telegram.env
+chmod 600 ~/.config/sibajx-bot/telegram.env
 ```
 
-Luego: `python3 -m davis_monitor --test-webhook` y `sudo systemctl restart davis-monitor`.
+y en `config.json`:
+
+```json
+{ "telegram_env": "~/.config/sibajx-bot/telegram.env" }
+```
+
+Luego: `python3 -m davis_monitor --test-webhook` y `sudo systemctl restart davis-monitor`. Los mensajes llegan como `[davis-monitor] …`; los de prioridad baja (inicio, fin de helada, recepción restablecida) llegan sin sonido. El token nunca se escribe en el log.
 
 ---
 
@@ -435,9 +443,9 @@ Patrón real de esta estación: por cada ciclo llegan ~4 temperaturas, ~4 tasas 
 
 ## 9. Alertas
 
-Salen en el log (`ALERTA: ...`) siempre, y por notificación si hay `webhook_url`:
+Salen en el log (`ALERTA: ...`) siempre, y por Telegram si hay `telegram_env`:
 
-| Alerta | Cuándo | Prioridad ntfy |
+| Alerta | Cuándo | Prioridad (baja = sin sonido en Telegram) |
 |---|---|---|
 | Helada | Temperatura ≤ 2 °C. "Fin de helada" al pasar de 3 °C (histéresis: no repite por oscilaciones) | urgente |
 | Tormenta severa | Tasa de lluvia ≥ 25 mm/h (requiere pluviómetro activo) | urgente |
@@ -463,7 +471,7 @@ Salen en el log (`ALERTA: ...`) siempre, y por notificación si hay `webhook_url
 | `flag provided but not defined: -tf` | Se compiló `bemasher/rtldavis` (archivado) | Compilar `lheijst/rtldavis` |
 | La TUI dice "Terminal pequeña" | Menos de 90×24 | Agrandar la ventana o usar `--visor` |
 | Dos programas pelean por el dongle | TUI abierta con el servicio corriendo | `sudo systemctl stop davis-monitor` antes de la TUI, o usar `--visor` |
-| Notificación llega como JSON crudo | Falta `"webhook_formato": "ntfy"` | Agregarlo y reiniciar el servicio |
+| No llegan alertas a Telegram | Falta `telegram_env` o el archivo no tiene `TOKEN`/`CHAT_ID` | `python3 -m davis_monitor --test-webhook` dice qué falta |
 | `ImportError` / `No module named davis_monitor` | Corriste el comando fuera de la carpeta del proyecto | `cd ~/Escritorio/files/davis_v2` |
 | Lluvia vacía en el CSV | `pluviometro_activo=false` (a propósito) | Ponerlo en `true` cuando se repare el sensor |
 
@@ -512,7 +520,7 @@ sudo bash deploy/instalar_servicio.sh            # instala también la regla ude
 | Humedad de hoja/suelo | No existe en esta estación (requiere la estación Leaf & Soil de Davis) | El dato de la v2.3 era falso: no usarlo |
 | **Dongle NooElec** | Conexión inestable: **60+ desconexiones USB el 03-nov**, `error -71` | Cable corto, puerto USB 2.0 fijo, que no se mueva. Revisar con `journalctl -k --since today \| grep -c "USB disconnect"` |
 | Servicio | Unidad nueva lista en `deploy/` | Instalar con `sudo bash deploy/instalar_servicio.sh` |
-| Notificaciones | Desactivadas | Opcional: configurar ntfy (sección 5) |
+| Notificaciones | Por Telegram (SibajxBot) | Ver sección 5 |
 | Histórico v2.3 | Migrado a `datos/db/historico_v23_migrado.db` | Usar este en vez de la base vieja |
 
 ---
@@ -617,7 +625,7 @@ Se respalda **solo, cada día**, sin detener nada. El respaldo usa la API de bac
 - **Programación:** tu crontab de usuario (`crontab -l`) revisa cada hora a los :17 y respalda si el último tiene más de 23 h. También revisa 10 min después de encender la Pi. Si estuvo apagada, se pone al día sola.
 - **Verificación:** cada copia pasa `PRAGMA integrity_check` antes de guardarse. Un respaldo a medias nunca queda como válido, porque se escribe en `.parcial` y se renombra al final.
 - **Retención:** los 7 más recientes, más 1 por semana (4 semanas) y 1 por mes (12 meses). Los demás se borran solos.
-- **Protecciones:** no respalda con menos de 1 GB libre, no corre dos veces al mismo tiempo, y si falla avisa por ntfy (si está configurado) y lo anota en el log.
+- **Protecciones:** no respalda con menos de 1 GB libre, no corre dos veces al mismo tiempo, y si falla avisa por Telegram (si está configurado) y lo anota en el log.
 
 **Importante:** `datos/respaldos/` está **en la misma microSD**. Protege contra borrados, corrupción de la base o un error, pero **no contra que la tarjeta muera**. Para eso, conecta un disco USB y agrega en `config.json`:
 

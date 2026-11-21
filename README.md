@@ -55,7 +55,7 @@ davis_v2/
   - Lluvia acumulada a partir del contador del pluviómetro.
   - CSV por minuto con promedios, extremos, punto de rocío, VPD, dirección vectorial y calidad de recepción.
   - SQLite con escritura por lotes.
-  - Alertas push (ntfy).
+  - Alertas por Telegram.
 - **Dashboard:**
   - Secciones públicas *En vivo* (animado, se actualiza cada minuto), *Histórico* y *Recepción*, un monitor de CRC que dice qué pasó con cada transmisión de la estación (válida, dañada o no llegó; suma 100 %). Avisa y cambia a históricos cuando el sistema está fuera de línea.
   - Con sesión: *Promediado Davis*, con el método validado del paper (media retrospectiva de 30 min, mínimo 15 muestras) y una variante por integral temporal.

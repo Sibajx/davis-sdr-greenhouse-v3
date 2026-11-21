@@ -145,9 +145,12 @@ INTERVALO_COMPRESION_SEG: float = _valor("intervalo_compresion_seg", 3600.0, flo
 LOG_A_STDERR: bool = _valor("log_a_stderr", True, bool)
 
 # === Alertas ===
-WEBHOOK_URL: str = _valor("webhook_url", "")
+# Telegram: token y chat directos, o un archivo KEY=valor con TOKEN y CHAT_ID (fuera del repo, modo 600).
+TELEGRAM_TOKEN: str = _valor("telegram_token", "")
+TELEGRAM_CHAT_ID: str = _valor("telegram_chat_id", "")
+TELEGRAM_ENV: str = _valor("telegram_env", "")
+WEBHOOK_URL: str = _valor("webhook_url", "")          # opcional: POST JSON genérico
 WEBHOOK_TIMEOUT_SEG: float = _valor("webhook_timeout_seg", 5.0, float)
-WEBHOOK_FORMATO: str = _valor("webhook_formato", "json")
 COOLDOWN_ALERTA_BATERIA_SEG: float = _valor("cooldown_alerta_bateria_seg", 1800.0, float)
 UMBRAL_HELADA_C: float = _valor("umbral_helada_c", 2.0, float)
 HISTERESIS_HELADA_C: float = _valor("histeresis_helada_c", 1.0, float)
@@ -168,8 +171,8 @@ def _validar() -> list:
         p.append("backoff_max_seg < backoff_inicial_seg")
     if WEBHOOK_URL and not WEBHOOK_URL.startswith(("http://", "https://")):
         p.append(f"webhook_url={WEBHOOK_URL!r} no empieza con http(s)://")
-    if WEBHOOK_FORMATO not in ("json", "ntfy"):
-        p.append(f"webhook_formato={WEBHOOK_FORMATO!r} debe ser 'json' o 'ntfy'")
+    if "ntfy" in WEBHOOK_URL or "webhook_formato" in _CONFIG_ARCHIVO:
+        p.append("ntfy ya no se usa: las alertas van por Telegram (telegram_env); quita webhook_url/webhook_formato")
     for nombre in ("intervalo_csv_seg", "intervalo_commit_seg", "intervalo_estado_json_seg",
                    "intervalo_heartbeat_seg"):
         if globals()[nombre.upper()] <= 0:

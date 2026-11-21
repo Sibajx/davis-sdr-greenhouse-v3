@@ -230,7 +230,7 @@ python3 -m davis_monitor --visor                    # pantalla en vivo, en paral
 python3 -m davis_monitor.basedatos calidad --dias 1
 ```
 
-Notificaciones push: descomenta en la unidad `Environment=DAVIS_WEBHOOK_URL=https://ntfy.sh/<tu-tema>` y `DAVIS_WEBHOOK_FORMATO=ntfy`, o crea `config.json` a partir de `config.example.json`. Después: `sudo systemctl restart davis-monitor`.
+Alertas por Telegram: pon `telegram_env` en `config.json` (archivo con `TOKEN` y `CHAT_ID`, modo 600; ver la guía, sección 5). Después: `sudo systemctl restart davis-monitor`.
 
 > Importante: no abras la TUI (`python3 -m davis_monitor`) mientras el servicio corre: los dos pelean por el dongle. Para mirar, usa `--visor`.
 

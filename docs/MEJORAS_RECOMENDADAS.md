@@ -18,7 +18,7 @@
 | # | Mejora | Tipo | Detalle |
 |---|---|---|---|
 | 7 | **Cloudflare Access (Zero Trust)** delante del dashboard o solo de `/api/login` | Config | Gratis hasta 50 usuarios: agrega verificación por correo o Google **antes** de llegar a tu login. Defensa en profundidad para algo expuesto a internet |
-| 8 | **Notificaciones push con ntfy** (ya implementadas, solo falta activarlas) | Config | Helada, sin datos, dongle desconectado, batería. Ver la guía, sección 5 |
+| 8 | ~~Notificaciones push~~ **Hecho:** alertas por Telegram (2026-11-21) | Config | Helada, sin datos, dongle desconectado, batería. Ver la guía, sección 5 |
 | 9 | **Monitoreo externo** con Healthchecks.io o UptimeRobot (gratis) sobre la URL pública | Config | Te avisa si se cae la Pi, el internet o el túnel, que es justo lo que el sistema no puede avisar por sí mismo |
 | 10 | **Indicadores agronómicos** en el dashboard: ET₀ (Penman-Monteith FAO-56), grados-día de crecimiento, horas con VPD fuera de rango, horas de posible mojado foliar (T ≤ rocío + 1 °C) | Código | Todos se calculan con lo que ya se mide (T, HR, viento, radiación). Es lo que más usa un invernadero para riego y manejo de hongos |
 | 11 | **Validación continua contra el WiFiLogger**: subir su CSV en el dashboard y obtener MAE/RMSE/r/R² por variable, como en el script de tu compañero | Código | Convierte la validación del paper en algo repetible cada mes |

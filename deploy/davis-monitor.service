@@ -30,8 +30,7 @@ WorkingDirectory=/home/alternas/Escritorio/files/davis_v2
 ExecStart=/usr/bin/python3 -m davis_monitor --headless
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
-# Environment=DAVIS_WEBHOOK_URL=https://ntfy.sh/GreenHouse
-# Environment=DAVIS_WEBHOOK_FORMATO=ntfy
+# Alertas por Telegram: "telegram_env" en config.json (archivo con TOKEN y CHAT_ID, modo 600)
 
 Restart=always
 RestartSec=10
