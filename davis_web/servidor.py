@@ -33,6 +33,7 @@ MAX_CUERPO = 64 * 1024
 CONSULTAS_PESADAS = threading.BoundedSemaphore(3)   # series/promediado/exportar simultáneos
 LOGINS_SIMULTANEOS = threading.BoundedSemaphore(2)  # scrypt usa 16 MiB por intento: sin tope, una ráfaga mata el servicio
 LOGIN_ESPERA_SEG = 5.0
+RUTAS_CON_CLAVE_PENDIENTE = {"/api/cuenta/clave", "/api/logout", "/api/sesion"}
 LIMITES = {"api": (600, 60), "pesada": (60, 60)}    # (peticiones, ventana s) por IP; el lab sale por 1 sola IP (NAT)
 _HITS: dict = {}
 _HITS_LOCK = threading.Lock()
@@ -125,6 +126,8 @@ class Manejador(BaseHTTPRequestHandler):
         s = self.sesion()
         if not s:
             raise ErrorHTTP(401, "Inicia sesión para acceder")
+        if s.get("cambiar_clave") and urlparse(self.path).path not in RUTAS_CON_CLAVE_PENDIENTE:
+            raise ErrorHTTP(403, "Debes cambiar tu contraseña antes de continuar")
         if rol == "admin" and s["rol"] != "admin":
             raise ErrorHTTP(403, "Solo administradores")
         return s
@@ -138,6 +141,8 @@ class Manejador(BaseHTTPRequestHandler):
 
     def cuerpo_json(self) -> dict:
         n = int(self.headers.get("Content-Length") or 0)
+        if n < 0:
+            raise ErrorHTTP(400, "Content-Length inválido")
         if n > MAX_CUERPO:
             raise ErrorHTTP(413, "Petición demasiado grande")
         try:
@@ -257,7 +262,7 @@ def _rango(q, defecto_horas=24):
 
 
 def _vars(q, defecto):
-    v = [x for x in (q.get("vars") or "").split(",") if x]
+    v = list(dict.fromkeys(x for x in (q.get("vars") or "").split(",") if x))[:20]
     return v or list(defecto)
 
 
@@ -466,7 +471,7 @@ def ep_borrar_usuario(h, q, uid):
 
 def ep_auditoria(h, q):
     h.requiere("admin")
-    h.json({"eventos": h.auth.auditoria(int(q.get("limite", 200)))})
+    h.json({"eventos": h.auth.auditoria(max(1, min(int(q.get("limite", 200)), 1000)))})
 
 
 RUTAS = {

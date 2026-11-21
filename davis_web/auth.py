@@ -23,6 +23,8 @@ ROLES = ("admin", "usuario")
 MIN_LARGO_CLAVE = 10
 MAX_INTENTOS = 5
 BLOQUEO_SEG = 15 * 60
+SESION_MAX_SEG = 7 * 86400   # vida máxima aunque la sesión se renueve sin parar
+MAX_CLAVES_FALLOS = 5000     # tope del registro de fallos en memoria
 _RE_USUARIO = re.compile(r"^[a-zA-Z0-9._-]{3,32}$")
 
 _ESQUEMA = """
@@ -210,6 +212,11 @@ class Autenticador:
         return f[0] >= MAX_INTENTOS
 
     def _registrar_fallo(self, clave: str, ahora: float) -> None:
+        if len(self._fallos) >= MAX_CLAVES_FALLOS:   # purga: primero lo vencido, luego lo más viejo
+            for k in [k for k, v in self._fallos.items() if ahora - v[1] > BLOQUEO_SEG]:
+                self._fallos.pop(k, None)
+            while len(self._fallos) >= MAX_CLAVES_FALLOS:
+                self._fallos.pop(min(self._fallos, key=lambda k: self._fallos[k][1]))
         f = self._fallos.get(clave)
         if not f or ahora - f[1] > BLOQUEO_SEG:
             self._fallos[clave] = [1, ahora]
@@ -219,7 +226,9 @@ class Autenticador:
     def iniciar_sesion(self, usuario: str, clave: str, ip: str) -> dict:
         """Devuelve {'token','csrf','usuario'} o lanza PermissionError con mensaje genérico."""
         ahora = time.time()
-        ku, ki = f"u:{(usuario or '').lower()}", f"ip:{ip}"
+        # Bloqueo por usuario+IP (no solo por usuario): fallar con el nombre del admin desde
+        # otra IP ya no lo deja fuera a él. El tope global por IP sigue frenando a quien adivina.
+        ku, ki = f"u:{(usuario or '').lower()}|{ip}", f"ip:{ip}"
         with self._lock:
             if self._bloqueado(ku, ahora) or self._bloqueado(ki, ahora):
                 self.auditar("login_bloqueado", usuario, ip)
@@ -254,9 +263,9 @@ class Autenticador:
         ahora = time.time()
         sha = hashlib.sha256(token.encode()).hexdigest()
         with self._con() as c:
-            r = c.execute("SELECT s.csrf, s.expira, u.* FROM sesiones s JOIN usuarios u ON u.id=s.usuario_id "
-                          "WHERE s.token_sha=?", (sha,)).fetchone()
-            if not r or r["expira"] < ahora or not r["activo"]:
+            r = c.execute("SELECT s.csrf, s.expira, s.creada AS sesion_creada, u.* FROM sesiones s "
+                          "JOIN usuarios u ON u.id=s.usuario_id WHERE s.token_sha=?", (sha,)).fetchone()
+            if not r or r["expira"] < ahora or not r["activo"] or ahora - r["sesion_creada"] > SESION_MAX_SEG:
                 if r:
                     c.execute("DELETE FROM sesiones WHERE token_sha=?", (sha,))
                 return None

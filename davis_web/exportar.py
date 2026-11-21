@@ -26,6 +26,8 @@ def _fecha(ts: float) -> str:
 def tabla(fuente: str, desde: float, hasta: float, claves: Sequence[str], resolucion: int = None,
           intervalo_min: int = 30, metodo: str = "media") -> Tuple[List[str], List[list], dict]:
     """→ (encabezados, filas, metadatos)"""
+    if fuente not in MAX_DIAS:   # antes: KeyError → 500 con traza en el log
+        raise ValueError("Fuente inválida")
     dias = (hasta - desde) / 86400
     if hasta <= desde:
         raise ValueError("El fin debe ser posterior al inicio")
