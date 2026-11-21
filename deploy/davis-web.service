@@ -7,6 +7,7 @@ After=network-online.target davis-monitor.service
 Wants=network-online.target
 
 [Service]
+UMask=0077
 Type=simple
 User=alternas
 Group=alternas

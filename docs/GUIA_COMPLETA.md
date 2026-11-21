@@ -543,12 +543,12 @@ navegador ──HTTPS──▶ Cloudflare ──túnel──▶ cloudflared (Pi)
 - Cada gráfica tiene **⤢** (ampliar con zoom) y, **solo con sesión**, **PNG**. El PNG lleva al pie quién lo descargó y cuándo. Hay tema oscuro/claro (◐) y diseño adaptado a celular.
 - Cada sección muestra debajo de las pestañas una línea que explica para qué sirve. Las tarjetas de VPD y UV tienen un botón **?** con la explicación de sus bandas.
 
-### 13.1b Acceso público y Cloudflare Access
+### 13.1b Acceso público
 
-La cuenta de Cloudflare tiene una aplicación de Access, **"Subdominios s-dev (equipo)"**, que protege `*.s-dev.win`. Para que el dashboard sea público hay una aplicación específica, **"davis (publico)"** (`davis.s-dev.win`, política *publico → Bypass → Everyone*), igual que las de `ashli` y `lealtad`. La regla más específica gana, así que solo este subdominio queda abierto.
+El dashboard es público: cualquiera puede ver los datos en vivo y el histórico sin iniciar sesión. Las descargas, el promediado y la administración de usuarios piden sesión, y el servidor verifica el rol en cada petición.
 
-- **Volver a restringirlo:** en Zero Trust → Access → Applications, elimina "davis (publico)". El sitio vuelve a pedir el login del equipo.
-- **Dentro del laboratorio:** el FortiGate bloquea `s-dev.win` (categoría "Newly Registered Domain"). Hay que pedir a TI que lo permita.
+- **Volver a restringirlo:** se hace desde el proveedor que publica el sitio (por ejemplo, una política de acceso que pida login antes de llegar al dashboard). Los detalles de esa configuración no se documentan aquí a propósito.
+- **Dentro del laboratorio:** si el filtro web de la red bloquea el dominio por ser nuevo o "sin categoría", hay que pedir a TI que lo permita.
 
 ### 13.2 Promediado "método Davis"
 
