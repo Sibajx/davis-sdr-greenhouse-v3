@@ -292,16 +292,31 @@ function pintarMinis() {
   }
 }
 
+// Un "sincronizando" de más de 10 min ya no es una resincronización normal:
+// se muestra como corte, con cuánto lleva y la causa probable.
+const CORTE_LARGO_SEG = 600;
+
 function pintarConexion() {
   const e = S.estado, nodo = $("#conexion");
-  nodo.dataset.estado = e.conexion;
-  $(".texto", nodo).textContent = { en_linea: "En vivo", sincronizando: "Sincronizando", fuera_de_linea: "Fuera de línea" }[e.conexion];
+  const sdr = e.datos?.sdr || {};
+  const sinPaq = sdr.segundos_sin_paquetes;
+  const usb = sdr.estado === "ERROR USB";
+  const corte = e.conexion === "sincronizando" && (usb || (sinPaq ?? 0) > CORTE_LARGO_SEG);
+  nodo.dataset.estado = corte ? "fuera_de_linea" : e.conexion;
+  $(".texto", nodo).textContent = corte ? "Sin señal"
+    : { en_linea: "En vivo", sincronizando: "Sincronizando", fuera_de_linea: "Fuera de línea" }[e.conexion];
   nodo.title = e.motivo;
   const av = $("#aviso-offline");
   av.classList.toggle("oculto", e.conexion === "en_linea");
-  av.classList.toggle("sync", e.conexion === "sincronizando");
-  $("#aviso-titulo").textContent = e.conexion === "sincronizando" ? "Receptor sincronizando con la estación." : "Sistema fuera de línea.";
-  $("#aviso-motivo").textContent = e.motivo + ".";
+  av.classList.toggle("sync", e.conexion === "sincronizando" && !corte);
+  let titulo = e.conexion === "sincronizando" ? "Receptor sincronizando con la estación." : "Sistema fuera de línea.";
+  let motivo = e.motivo;
+  if (corte) {
+    titulo = sinPaq ? `Sin datos nuevos de la estación desde hace ${haceTxt(sinPaq)}.` : "Sin datos nuevos de la estación.";
+    motivo = usb ? "El radio (RTL-SDR) no responde por USB: hay que desconectarlo y volver a conectarlo" : e.motivo;
+  }
+  $("#aviso-titulo").textContent = titulo;
+  $("#aviso-motivo").textContent = motivo + ".";
 }
 
 async function actualizarEstado() {
